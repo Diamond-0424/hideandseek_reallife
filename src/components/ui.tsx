@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
-import { IconGhost } from './icons'
+import { IconGhost, IconMusic, IconMusicOff } from './icons'
+import { setMusicEnabled, useMusicEnabled } from '../lib/music'
+import { unlockAudio } from '../lib/sound'
 
 const PALETTE = ['#3d6bff', '#00a3c4', '#8b5cf6', '#e0a000', '#1fb46b', '#ff7a3d', '#5b82ff', '#e0559b']
 
@@ -82,5 +84,24 @@ export function Splash({ text }: { text: string }) {
       <span className="spinner" />
       <p className="muted">{text}</p>
     </main>
+  )
+}
+
+/** 背景音樂開關 */
+export function MusicToggle({ className = '' }: { className?: string }) {
+  const on = useMusicEnabled()
+  return (
+    <button
+      type="button"
+      className={`icon-btn music-toggle ${on ? 'is-on' : ''} ${className}`}
+      aria-label={on ? '關閉背景音樂' : '開啟背景音樂'}
+      aria-pressed={on}
+      onClick={() => {
+        unlockAudio()
+        setMusicEnabled(!on)
+      }}
+    >
+      {on ? <IconMusic size={18} /> : <IconMusicOff size={18} />}
+    </button>
   )
 }

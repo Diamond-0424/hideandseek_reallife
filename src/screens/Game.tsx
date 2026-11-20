@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { updateDoc } from 'firebase/firestore'
 import { MapView, type MapCircle, type MapDot } from '../components/MapView'
-import { Avatar, Ring, fmtClock } from '../components/ui'
+import { Avatar, MusicToggle, Ring, fmtClock } from '../components/ui'
+import { useMusicScene, type Scene } from '../lib/music'
 import { IconAlert, IconCheck, IconGhost, IconHider, IconInfo, IconStop } from '../components/icons'
 import { useAwayReport, useNow, type GeoFix } from '../hooks/device'
 import type { RoomData } from '../hooks/useRoomData'
@@ -25,6 +26,7 @@ export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
   const room = data.room!
   const now = useNow(500)
   const paused = !isHost && hostStale(room, now)
+  useMusicScene(musicFor(room, me, now, data.myTasks.length > 0))
 
   if (now < room.revealUntil) return <Reveal room={room} players={data.players} me={me} now={now} />
 
@@ -59,6 +61,14 @@ export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
       )}
     </main>
   )
+}
+
+/** 依遊戲情境挑背景音樂 */
+function musicFor(room: Room, me: Player, now: number, hasTask: boolean): Scene {
+  if (now < room.revealUntil) return 'reveal'
+  if (room.status === 'hiding') return 'hiding'
+  if (me.role === 'hider') return hasTask ? 'task' : 'stealth'
+  return now < me.ghostReadyAt ? 'hiding' : 'hunt'
 }
 
 function Reveal({ room, players, me, now }: { room: Room; players: Player[]; me: Player; now: number }) {
@@ -109,6 +119,7 @@ function TopBar({ room, me, now, isHost }: { room: Room; me: Player; now: number
         <span className={`clock ${left < 60_000 ? 'is-danger' : ''}`}>{fmtClock(left)}</span>
       </div>
       <Ring value={left / total} size={40} stroke={4} danger={left < 60_000} />
+      <MusicToggle />
       {isHost && (
         <button
           className="icon-btn"

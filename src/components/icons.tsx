@@ -221,3 +221,20 @@ export function Logo({ size = 72 }: { size?: number }) {
     </svg>
   )
 }
+
+export const IconMusic = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 18V6l11-2v12" {...line} />
+    <circle cx="6.5" cy="18" r="2.8" fill="currentColor" />
+    <circle cx="17.5" cy="16" r="2.8" fill="currentColor" />
+  </Svg>
+)
+
+export const IconMusicOff = (p: P) => (
+  <Svg {...p}>
+    <path d="M9 18V6l11-2v12" {...line} opacity="0.4" />
+    <circle cx="6.5" cy="18" r="2.8" fill="currentColor" opacity="0.4" />
+    <circle cx="17.5" cy="16" r="2.8" fill="currentColor" opacity="0.4" />
+    <path d="M3 3l18 18" {...line} strokeWidth={2.4} />
+  </Svg>
+)

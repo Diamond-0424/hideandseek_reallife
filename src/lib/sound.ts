@@ -1,10 +1,19 @@
 let ctx: AudioContext | null = null
 
-/** iOS 需要在使用者點擊時先解鎖音訊 */
+/** 讓背景音樂模組掛勾，避免兩個模組互相 import */
+export const audioHooks = {
+  onUnlock: () => {},
+  onBeep: () => {},
+}
+
+export const getAudioCtx = () => ctx
+
+/** iOS 需要在使用者點擊時先解鎖音訊；每次點擊都可以呼叫，被系統中斷後也能恢復 */
 export function unlockAudio() {
   try {
     ctx ??= new AudioContext()
-    if (ctx.state === 'suspended') void ctx.resume()
+    if (ctx.state === 'running') audioHooks.onUnlock()
+    else void ctx.resume().then(() => audioHooks.onUnlock())
   } catch {
     /* 不支援就算了 */
   }
@@ -13,6 +22,7 @@ export function unlockAudio() {
 /** 短促的雙音提示，避免太大聲被鬼聽到 */
 export function beep() {
   if (!ctx) return
+  audioHooks.onBeep()
   const t = ctx.currentTime
   for (const [i, freq] of [880, 1320].entries()) {
     const osc = ctx.createOscillator()

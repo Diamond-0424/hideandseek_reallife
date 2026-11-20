@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { requestLocation } from '../hooks/device'
 import { createRoom, joinRoom, saveRoom } from '../lib/room'
 import { unlockAudio } from '../lib/sound'
+import { useMusicScene } from '../lib/music'
+import { MusicToggle } from '../components/ui'
 import { IconAlert, IconHeadphones, IconPin, IconSun, Logo } from '../components/icons'
 
 const NAME_KEY = 'hs.name'
@@ -11,6 +13,7 @@ export function Home({ uid, onEnter }: { uid: string; onEnter: (code: string) =>
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState<'create' | 'join' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  useMusicScene('lobby')
 
   async function go(kind: 'create' | 'join') {
     const n = name.trim()
@@ -34,6 +37,7 @@ export function Home({ uid, onEnter }: { uid: string; onEnter: (code: string) =>
 
   return (
     <main className="screen home">
+      <MusicToggle className="corner" />
       <section className="hero rise">
         <Logo size={64} />
         <h1>現實躲貓貓</h1>

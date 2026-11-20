@@ -587,3 +587,12 @@ svg { flex: none; }
 .total { font-size: 1.8rem; font-weight: 900; font-variant-numeric: tabular-nums; }
 .rule-line { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.3rem 0.9rem; color: var(--muted); font-size: 0.78rem; font-weight: 600; }
 .rule-line b { color: var(--hi); }
+
+/* ───────────── 背景音樂開關 ───────────── */
+.music-toggle.is-on { color: var(--text); }
+.music-toggle.corner { position: absolute; right: 1.1rem; top: calc(1.1rem + var(--safe-t)); z-index: 5; }
+.home, .results { position: relative; }
+.head-actions { display: flex; align-items: center; gap: 0.4rem; }
+.hud-top .music-toggle { align-self: center; margin-right: 0.6rem; }
+.hud-top > .ring + .music-toggle { margin-left: -0.2rem; }
+.hud-top .music-toggle + .icon-btn { margin-left: 0; }

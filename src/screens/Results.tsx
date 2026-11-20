@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Avatar } from '../components/ui'
+import { Avatar, MusicToggle } from '../components/ui'
+import { useMusicScene } from '../lib/music'
 import { IconGhost, IconHider, IconRepeat } from '../components/icons'
 import { leaveRoom, rematch } from '../lib/room'
 import { score } from '../lib/rules'
@@ -15,6 +16,7 @@ interface Props {
 
 export function Results({ room, players, me, isHost, onExit }: Props) {
   const [busy, setBusy] = useState(false)
+  useMusicScene('results')
   const rows = players
     .map((p) => ({ p, s: score(p, room, room.endedAt) }))
     .sort((a, b) => b.s.total - a.s.total)
@@ -22,6 +24,7 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
 
   return (
     <main className="screen results">
+      <MusicToggle className="corner" />
       <section className={`results-hero rise ${hidersWon ? '' : 'ghost-win'}`}>
         <span className="results-mark">{hidersWon ? <IconHider size={32} /> : <IconGhost size={32} />}</span>
         <h1>{hidersWon ? '躲藏方撐到最後' : '鬼抓到所有人'}</h1>

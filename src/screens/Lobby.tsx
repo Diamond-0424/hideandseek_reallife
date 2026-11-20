@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { MapView, type MapCircle, type MapDot } from '../components/MapView'
-import { Avatar, Stepper } from '../components/ui'
+import { Avatar, MusicToggle, Stepper } from '../components/ui'
+import { useMusicScene } from '../lib/music'
 import { IconAlert, IconDice, IconLocate, IconPin } from '../components/icons'
 import type { GeoFix } from '../hooks/device'
 import { drawAndStart, leaveRoom, updateSettings } from '../lib/room'
@@ -43,6 +44,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
+  useMusicScene('lobby')
 
   const save = (patch: Partial<Settings>) =>
     updateSettings(room.code, { ...s, ...patch }).catch((e) => setError(e.message))
@@ -100,15 +102,18 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
             ))}
           </span>
         </button>
-        <button
-          className="btn subtle sm"
-          onClick={async () => {
-            await leaveRoom(me.id, room.code)
-            onExit()
-          }}
-        >
-          離開
-        </button>
+        <span className="head-actions">
+          <MusicToggle />
+          <button
+            className="btn subtle sm"
+            onClick={async () => {
+              await leaveRoom(me.id, room.code)
+              onExit()
+            }}
+          >
+            離開
+          </button>
+        </span>
       </header>
 
       <section className="card rise" style={{ animationDelay: '60ms' }}>
