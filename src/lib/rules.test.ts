@@ -6,6 +6,8 @@ import {
   leakCenter,
   leakRadius,
   nextTaskDelayMs,
+  boundaryRadiusAt,
+  nextShrink,
   pickGhosts,
   score,
   seeded,
@@ -56,6 +58,27 @@ describe('tasks', () => {
   })
 })
 
+describe('shrinking boundary', () => {
+  const T0 = 1_700_000_000_000
+  const s = { ...DEFAULT_SETTINGS, boundaryRadius: 400, shrinkEveryMin: 10 }
+  const min = (m: number) => T0 + m * 60_000
+
+  it('shrinks 15% of the original radius per step, down to 40%', () => {
+    expect([0, 9.9, 10, 20, 40, 90].map((m) => boundaryRadiusAt(s, T0, min(m)))).toEqual([400, 400, 340, 280, 160, 160])
+  })
+
+  it('reports the next shrink until the minimum is reached', () => {
+    expect(nextShrink(s, T0, min(3))).toEqual({ at: min(10), radius: 340 })
+    expect(nextShrink(s, T0, min(35))).toEqual({ at: min(40), radius: 160 })
+    expect(nextShrink(s, T0, min(45))).toBeNull()
+  })
+
+  it('does nothing when disabled', () => {
+    expect(boundaryRadiusAt({ ...s, shrinkEveryMin: 0 }, T0, min(60))).toBe(400)
+    expect(nextShrink({ ...s, shrinkEveryMin: 0 }, T0, min(1))).toBeNull()
+  })
+})
+
 describe('pickGhosts', () => {
   it('always leaves at least one hider', () => {
     expect(pickGhosts(['a', 'b'], 5)).toHaveLength(1)
@@ -69,8 +92,13 @@ describe('score', () => {
   const base: Player = {
     id: 'x', name: 'x', role: 'hider', startedAsGhost: false, joinedAt: 0, caughtAt: 0,
     caughtBy: '', ghostReadyAt: 0, tasksDone: 0, leaks: 0, catches: 0, nextTaskAt: 0,
-    awayPenalizedSeen: 0, lastOutOfBoundsLeak: 0,
+    awayPenalizedSeen: 0, lastOutOfBoundsLeak: 0, bonusCatches: 0, radarAt: 0, radarDoneAt: 0,
+    radarDist: 0, radarReadyAt: 0,
   }
+
+  it('ghost bonus catches add 5 each', () => {
+    expect(score({ ...base, startedAsGhost: true, catches: 2, bonusCatches: 1 }, room, T0).total).toBe(25)
+  })
 
   it('hider: survival + tasks − leaks', () => {
     const s = score({ ...base, tasksDone: 4, leaks: 2 }, room, T0 + 10 * 60000 + 5000)

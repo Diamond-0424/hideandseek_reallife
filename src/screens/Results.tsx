@@ -49,6 +49,7 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
                 {s.survival > 0 && <span>存活 +{s.survival}</span>}
                 {s.tasks > 0 && <span>任務 +{s.tasks}</span>}
                 {s.catches > 0 && <span>抓人 +{s.catches}</span>}
+                {s.bonus > 0 && <span>曝光中抓 +{s.bonus}</span>}
                 {s.leaks < 0 && <span className="neg">曝光 {s.leaks}</span>}
               </span>
             </div>
@@ -68,6 +69,9 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
         </span>
         <span>
           抓到一人 <b>+10</b>
+        </span>
+        <span>
+          曝光中抓到 <b>+5</b>
         </span>
       </p>
 

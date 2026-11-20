@@ -39,6 +39,11 @@ function freshPlayerFields(): Omit<Player, 'id' | 'name' | 'joinedAt'> {
     tasksDone: 0,
     leaks: 0,
     catches: 0,
+    bonusCatches: 0,
+    radarAt: 0,
+    radarDoneAt: 0,
+    radarDist: 0,
+    radarReadyAt: 0,
     nextTaskAt: 0,
     awayPenalizedSeen: 0,
     lastOutOfBoundsLeak: 0,
@@ -129,6 +134,7 @@ export async function drawAndStart(room: Room, players: Player[]): Promise<void>
     playStartAt: 0,
     endsAt: 0,
     endedAt: 0,
+    nextPingAt: 0,
     hostSeen: now,
   })
   await batch.commit()
@@ -172,8 +178,8 @@ export async function completeTask(code: string, task: Task): Promise<boolean> {
   })
 }
 
-/** 躲藏者：回報自己被抓（良心制） */
-export async function reportCaught(code: string, uid: string, ghostId: string): Promise<void> {
+/** 躲藏者：回報自己被抓（良心制）。exposed：抓到時正在曝光或剛曝光完，鬼額外加分 */
+export async function reportCaught(code: string, uid: string, ghostId: string, exposed = false): Promise<void> {
   const now = nowMs()
   const batch = writeBatch(db)
   batch.update(playerRef(code, uid), {
@@ -182,8 +188,16 @@ export async function reportCaught(code: string, uid: string, ghostId: string): 
     caughtBy: ghostId,
     ghostReadyAt: now + GHOST_COOLDOWN_MS,
   })
-  batch.update(playerRef(code, ghostId), { catches: increment(1) })
+  batch.update(playerRef(code, ghostId), {
+    catches: increment(1),
+    ...(exposed ? { bonusCatches: increment(1) } : {}),
+  })
   await batch.commit()
+}
+
+/** 鬼：按下雷達，由房主算出最近躲藏者的距離 */
+export function requestRadar(code: string, uid: string) {
+  return updateDoc(playerRef(code, uid), { radarAt: nowMs() })
 }
 
 export function writeLocation(code: string, uid: string, loc: PlayerLocation) {

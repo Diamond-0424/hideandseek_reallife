@@ -32,10 +32,10 @@ service cloud.firestore {
         // 加入前要先讀自己的文件（判斷是不是重新接回），那時還不是成員
         allow read: if signedIn() && (request.auth.uid == uid || isMember());
         allow create: if signedIn() && request.auth.uid == uid;
-        // 自己、房主，或回報被抓時替鬼 +1
+        // 自己、房主，或回報被抓時替鬼 +1（曝光中被抓再加額外分）
         allow update: if signedIn() && (
           request.auth.uid == uid || isHost() ||
-          (isMember() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['catches']))
+          (isMember() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['catches', 'bonusCatches']))
         );
         allow delete: if signedIn() && (request.auth.uid == uid || isHost());
       }

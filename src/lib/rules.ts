@@ -11,10 +11,24 @@ export const DEFAULT_SETTINGS: Settings = {
   awayToleranceSec: 30,
   boundaryCenter: null,
   boundaryRadius: 300,
+  radarCooldownMin: 5,
+  shrinkEveryMin: 10,
+  pingEveryMin: 10,
+  idleLeakMin: 3,
+  realTaskPct: 50,
+}
+
+/** 舊房間的設定可能缺新欄位，一律補預設值 */
+export function withDefaults(s: Partial<Settings> | undefined): Settings {
+  return { ...DEFAULT_SETTINGS, ...s }
 }
 
 export const REVEAL_MS = 5000
 export const LEAK_SHOW_MS = 60_000
+/** 任務失敗：直接公布精確位置並即時追蹤這麼久 */
+export const TRACK_MS = 20_000
+/** 被追蹤期間的心跳間隔，讓鬼看到的位置接近即時 */
+export const TRACK_HEARTBEAT_MS = 2000
 export const GHOST_COOLDOWN_MS = 60_000
 export const BOUNDARY_LEAK_COOLDOWN_MS = 60_000
 export const HEARTBEAT_MS = 8000
@@ -22,6 +36,23 @@ export const HEARTBEAT_MS = 8000
 export const HOST_STALE_MS = 10_000
 /** 任務截止後的寬限，吸收各手機時鐘與網路延遲 */
 export const TASK_GRACE_MS = 3000
+
+/** 每次縮圈縮掉原半徑的這個比例，最小縮到原半徑的 SHRINK_MIN */
+export const SHRINK_STEP = 0.15
+export const SHRINK_MIN = 0.4
+/** 縮圈前多久開始預告新邊界 */
+export const SHRINK_WARN_MS = 60_000
+
+/** 定期廣播的範圍與顯示時間 */
+export const PING_RADIUS_M = 100
+export const PING_SHOW_MS = 30_000
+
+/** 離最初位置不到這個距離都算「沒移動」（吸收 GPS 飄移） */
+export const IDLE_MOVE_M = 25
+
+/** 曝光中或曝光結束後這段時間內抓到人，鬼額外加分 */
+export const BONUS_WINDOW_MS = 60_000
+export const BONUS_POINTS = 5
 
 export const GOTO_RADIUS_M = 15
 export const MOVE_DISTANCE_M = 50
@@ -56,9 +87,8 @@ export function nextTaskDelayMs(s: Settings, rand = Math.random): number {
 
 const MINIGAMES: TaskType[] = ['math', 'reaction', 'memory', 'typing']
 
-export function pickTaskType(hasLocation: boolean, rand = Math.random): TaskType {
-  // 約三分之一機率出現實任務
-  if (hasLocation && rand() < 0.34) return rand() < 0.5 ? 'goto' : 'move'
+export function pickTaskType(hasLocation: boolean, realTaskPct = 50, rand = Math.random): TaskType {
+  if (hasLocation && rand() * 100 < realTaskPct) return rand() < 0.5 ? 'goto' : 'move'
   return MINIGAMES[Math.floor(rand() * MINIGAMES.length)]
 }
 
@@ -74,6 +104,27 @@ export function gotoTarget(
     if (!boundaryCenter || insideCircle(p, boundaryCenter, boundaryRadius * 0.95)) return p
   }
   return null
+}
+
+/** 縮圈後的邊界半徑（由開打時間推算，所有人算出來一樣） */
+export function boundaryRadiusAt(s: Settings, playStartAt: number, now: number): number {
+  if (!s.shrinkEveryMin || !playStartAt || now < playStartAt) return s.boundaryRadius
+  const steps = Math.floor((now - playStartAt) / (s.shrinkEveryMin * 60_000))
+  return Math.round(s.boundaryRadius * Math.max(SHRINK_MIN, 1 - steps * SHRINK_STEP))
+}
+
+/** 下一次縮圈的時間與縮完的半徑；已縮到最小或不縮時回傳 null */
+export function nextShrink(s: Settings, playStartAt: number, now: number): { at: number; radius: number } | null {
+  if (!s.shrinkEveryMin || !playStartAt) return null
+  const every = s.shrinkEveryMin * 60_000
+  const at = playStartAt + (Math.floor(Math.max(0, now - playStartAt) / every) + 1) * every
+  const radius = boundaryRadiusAt(s, playStartAt, at)
+  return radius < boundaryRadiusAt(s, playStartAt, now) ? { at, radius } : null
+}
+
+/** 雷達顯示用：往上取整到 10 公尺 */
+export function radarRound(m: number): number {
+  return Math.max(10, Math.ceil(m / 10) * 10)
 }
 
 export function gotoReached(loc: LatLng, target: LatLng): boolean {
@@ -107,6 +158,7 @@ export interface ScoreLine {
   tasks: number
   leaks: number
   catches: number
+  bonus: number
   total: number
 }
 
@@ -115,7 +167,8 @@ export function score(p: Player, room: Room, now: number): ScoreLine {
   const tasks = p.tasksDone * 3
   const leaks = p.leaks * -2
   const catches = p.catches * 10
-  return { survival, tasks, leaks, catches, total: survival + tasks + leaks + catches }
+  const bonus = (p.bonusCatches ?? 0) * BONUS_POINTS
+  return { survival, tasks, leaks, catches, bonus, total: survival + tasks + leaks + catches + bonus }
 }
 
 /** 可重現的亂數（小遊戲用 seed 產生題目） */

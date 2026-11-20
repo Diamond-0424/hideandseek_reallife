@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { onSnapshot, query, where } from 'firebase/firestore'
 import { leaksCol, locationsCol, playersCol, roomRef, tasksCol } from '../lib/room'
+import { withDefaults } from '../lib/rules'
 import type { Leak, Player, PlayerLocation, Room, Task } from '../types'
 
 export interface RoomData {
@@ -39,7 +40,7 @@ export function useRoomData(code: string, uid: string): RoomData {
     const unsubs = [
       onSnapshot(roomRef(code), (s) =>
         s.exists()
-          ? patch({ room: s.data() as Room })
+          ? patch({ room: { ...(s.data() as Room), settings: withDefaults((s.data() as Room).settings) } })
           : !s.metadata.fromCache && patch({ room: null, gone: true }),
       ),
       onSnapshot(playersCol(code), (s) => {

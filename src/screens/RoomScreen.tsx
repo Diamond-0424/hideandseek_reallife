@@ -22,10 +22,12 @@ export function RoomScreen({ code, uid, onExit }: Props) {
 
   const geo = useGeolocation(true)
   const wakeSupported = useWakeLock(live)
-  useHeartbeat(code, uid, me?.role, geo.fix, live)
+  // 自己正被即時追蹤時，心跳加快
+  const trackedUntil = Math.max(0, ...data.leaks.filter((l) => l.live && l.playerId === uid).map((l) => l.expiresAt))
+  useHeartbeat(code, uid, me?.role, geo.fix, live, trackedUntil)
 
   useHostLoop(
-    room && isHost ? { room, players, locations: data.locations, pendingTasks: data.allPendingTasks } : null,
+    room && isHost ? { room, players, locations: data.locations, pendingTasks: data.allPendingTasks, leaks: data.leaks } : null,
     Boolean(isHost && live),
   )
 

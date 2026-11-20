@@ -8,11 +8,23 @@ import { useAwayReport, useNow, type GeoFix } from '../hooks/device'
 import type { RoomData } from '../hooks/useRoomData'
 import { hostStale } from '../host/useHostLoop'
 import { nowMs } from '../lib/clock'
-import { completeTask, reportCaught, roomRef } from '../lib/room'
-import { GHOST_COOLDOWN_MS, HEARTBEAT_MS, REVEAL_MS, leakRadius } from '../lib/rules'
+import { completeTask, reportCaught, requestRadar, roomRef } from '../lib/room'
+import {
+  BONUS_POINTS,
+  BONUS_WINDOW_MS,
+  GHOST_COOLDOWN_MS,
+  HEARTBEAT_MS,
+  IDLE_MOVE_M,
+  REVEAL_MS,
+  SHRINK_WARN_MS,
+  boundaryRadiusAt,
+  leakRadius,
+  nextShrink,
+} from '../lib/rules'
+import { distance } from '../lib/geo'
 import { beep } from '../lib/sound'
 import { TaskPanel } from '../tasks/TaskPanel'
-import type { Player, Room } from '../types'
+import type { LatLng, Leak, Player, Room } from '../types'
 
 interface Props {
   data: RoomData
@@ -153,6 +165,59 @@ function useToast() {
   return { show, node }
 }
 
+const LEAK_WHY: Record<Leak['reason'], string> = {
+  task: '任務失敗',
+  away: '離開頁面太久',
+  boundary: '跑出邊界',
+  idle: '太久沒移動',
+  ping: '定期廣播',
+}
+
+/** 邊界（含縮圈）：目前的圈、縮圈前 60 秒預告的新圈、倒數用的資訊 */
+function useBoundary(room: Room, now: number) {
+  const s = room.settings
+  const sec = Math.floor(now / 1000)
+  return useMemo(() => {
+    const t = sec * 1000
+    const radius = boundaryRadiusAt(s, room.playStartAt, t)
+    const next = room.status === 'playing' ? nextShrink(s, room.playStartAt, t) : null
+    const warn = Boolean(next && next.at - t <= SHRINK_WARN_MS)
+    const circles: MapCircle[] = []
+    if (s.boundaryCenter) {
+      circles.push({ id: 'boundary', center: s.boundaryCenter, radius, tone: 'boundary' })
+      if (next && warn)
+        circles.push({ id: 'shrink', center: s.boundaryCenter, radius: next.radius, tone: 'shrink', label: '新邊界' })
+    }
+    return { circles, next, warn }
+  }, [s, room.playStartAt, room.status, sec])
+}
+
+function ShrinkStat({ next, now }: { next: { at: number; radius: number } | null; now: number }) {
+  if (!next) return null
+  const left = next.at - now
+  return (
+    <span className={`stat ${left <= SHRINK_WARN_MS ? 'is-danger' : ''}`}>
+      <span>縮圈</span>
+      <b>{fmtClock(left)}</b>
+    </span>
+  )
+}
+
+/** 躲藏者自己算的靜止時間，跟房主的判定大致同步（房主曝光後重新計時，所以用取餘數） */
+function useIdleLeft(fix: GeoFix | null, limitMin: number, active: boolean, now: number): number | null {
+  const [anchor, setAnchor] = useState<(LatLng & { at: number }) | null>(null)
+  useEffect(() => {
+    if (!active || !fix) {
+      setAnchor(null)
+      return
+    }
+    setAnchor((a) => (!a || distance(a, fix) > IDLE_MOVE_M ? { lat: fix.lat, lng: fix.lng, at: nowMs() } : a))
+  }, [fix, active])
+  if (!active || !limitMin || !anchor) return null
+  const limit = limitMin * 60_000
+  return limit - (Math.max(0, now - anchor.at) % limit)
+}
+
 // ───────────────────────── 躲藏者 ─────────────────────────
 
 function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: number; fix: GeoFix | null }) {
@@ -184,10 +249,13 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       if (l.playerId !== me.id || seenLeaks.current.has(l.id)) continue
       seenLeaks.current.add(l.id)
       if (l.createdAt < mountedAt.current) continue
-      const why = { task: '任務失敗', away: '離開頁面太久', boundary: '跑出邊界' }[l.reason]
-      const range = l.radius ? `${l.radius} 公尺範圍` : '精確位置'
       beep()
-      show(`你曝光了：${why} · 第 ${l.level} 次 · ${range}`, 'danger', 8000)
+      if (l.reason === 'ping') {
+        show(`定期廣播：你附近 ${l.radius} 公尺範圍已公布給鬼`, 'info', 8000)
+        continue
+      }
+      const range = l.live ? `精確位置，即時追蹤 ${Math.round((l.expiresAt - l.createdAt) / 1000)} 秒` : l.radius ? `${l.radius} 公尺範圍` : '精確位置'
+      show(`你曝光了：${LEAK_WHY[l.reason]} · ${range}`, 'danger', 8000)
     }
   }, [data.leaks, me.id, show])
 
@@ -206,13 +274,14 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       .catch((e) => show(`送出失敗：${e.message}`, 'danger'))
   }, [task, room.code, show])
 
+  const boundary = useBoundary(room, now)
+  const idleLeft = useIdleLeft(fix, s.idleLeakMin, playing, now)
   const circles = useMemo<MapCircle[]>(() => {
-    const c: MapCircle[] = []
-    if (s.boundaryCenter) c.push({ id: 'boundary', center: s.boundaryCenter, radius: s.boundaryRadius, tone: 'boundary' })
+    const c: MapCircle[] = [...boundary.circles]
     if (task?.type === 'goto' && task.point) c.push({ id: 'target', center: task.point, radius: 15, tone: 'target', label: '目標' })
     if (task?.type === 'move' && task.point) c.push({ id: 'zone', center: task.point, radius: 50, tone: 'zone' })
     return c
-  }, [s.boundaryCenter, s.boundaryRadius, task])
+  }, [boundary.circles, task])
   const dots = useMemo<MapDot[]>(() => (fix ? [{ id: 'me', at: fix, kind: 'self' }] : []), [fix])
 
   const ghosts = data.players.filter((p) => p.role === 'ghost' && p.id !== me.id)
@@ -235,7 +304,7 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
           </b>
         </span>
         <span className={`stat ${next ? '' : 'is-warn'}`}>
-          <span>下次曝光</span>
+          <span>其他曝光</span>
           <b>
             {next ? (
               <>
@@ -247,8 +316,13 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
             )}
           </b>
         </span>
+        <ShrinkStat next={boundary.next} now={now} />
       </div>
       {!playing && <div className="pill-banner">趁現在快去躲好，躲藏期間沒有任務</div>}
+      {playing && !task && boundary.warn && <div className="pill-banner danger">邊界即將縮小，移到紅色虛線內</div>}
+      {playing && !task && !boundary.warn && idleLeft !== null && idleLeft <= 60_000 && (
+        <div className="pill-banner danger">太久沒移動，{fmtClock(idleLeft)} 後曝光</div>
+      )}
       {task && <TaskPanel key={task.id} task={task} now={now} fix={fix} onDone={onDone} />}
       {!task && (
         <div className="hud-bottom">
@@ -269,7 +343,9 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
                   className="pick"
                   onClick={() => {
                     setCatching(false)
-                    reportCaught(room.code, me.id, g.id).catch((e) => show(e.message, 'danger'))
+                    const t = nowMs()
+                    const exposed = data.leaks.some((l) => l.playerId === me.id && l.expiresAt + BONUS_WINDOW_MS > t)
+                    reportCaught(room.code, me.id, g.id, exposed).catch((e) => show(e.message, 'danger'))
                   }}
                 >
                   <Avatar id={g.id} name={g.name} ghost />
@@ -304,7 +380,13 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       seen.current.add(l.id)
       if (!first.current && l.expiresAt > nowMs()) {
         beep()
-        show(`${l.playerName} 曝光了：${l.radius ? `${l.radius}m 範圍` : '精確位置'}`, 'ok')
+        const range = l.live ? '即時位置，快追！' : l.radius ? `${l.radius}m 範圍` : '精確位置'
+        show(
+          l.reason === 'ping'
+            ? `定期廣播：${l.playerName} 在 ${l.radius}m 範圍內`
+            : `${l.playerName} 曝光了（${LEAK_WHY[l.reason]}）：${range}`,
+          'ok',
+        )
       }
     }
     first.current = false
@@ -312,19 +394,28 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
 
   const sec = Math.ceil(now / 1000)
   const activeLeaks = useMemo(() => data.leaks.filter((l) => l.expiresAt > sec * 1000), [data.leaks, sec])
+  const boundary = useBoundary(room, now)
   const circles = useMemo<MapCircle[]>(() => {
-    const c: MapCircle[] = []
-    if (s.boundaryCenter) c.push({ id: 'boundary', center: s.boundaryCenter, radius: s.boundaryRadius, tone: 'boundary' })
+    const c: MapCircle[] = [...boundary.circles]
     for (const l of activeLeaks)
       c.push({
         id: l.id,
         center: l.center,
         radius: l.radius,
-        tone: 'leak',
-        label: `${l.playerName} · ${Math.max(0, Math.ceil(l.expiresAt / 1000 - sec))}s`,
+        tone: l.reason === 'ping' ? 'ping' : 'leak',
+        label: `${l.playerName}${l.live ? ' · 追蹤中' : ''} · ${Math.max(0, Math.ceil(l.expiresAt / 1000 - sec))}s`,
       })
     return c
-  }, [s.boundaryCenter, s.boundaryRadius, activeLeaks, sec])
+  }, [boundary.circles, activeLeaks, sec])
+
+  // 雷達結果出爐：提示
+  const lastRadar = useRef(me.radarDoneAt)
+  useEffect(() => {
+    if (!me.radarDoneAt || me.radarDoneAt === lastRadar.current) return
+    lastRadar.current = me.radarDoneAt
+    beep()
+    show(me.radarDist < 0 ? '雷達：目前偵測不到躲藏者' : `雷達：最近的躲藏者在 ${me.radarDist} 公尺內`, 'ok', 8000)
+  }, [me.radarDoneAt, me.radarDist, show])
 
   const bucket = Math.floor(now / 5000)
   const dots = useMemo<MapDot[]>(() => {
@@ -378,8 +469,14 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
           <span>曝光中</span>
           <b>{activeLeaks.length}</b>
         </span>
+        {s.radarCooldownMin > 0 && <RadarStat code={room.code} me={me} now={now} />}
+        <ShrinkStat next={boundary.next} now={now} />
       </div>
-      {activeLeaks.length === 0 && <div className="pill-banner">等待躲藏者曝光…</div>}
+      {activeLeaks.length === 0 && (
+        <div className="pill-banner">
+          {s.radarCooldownMin > 0 ? '等待曝光，或用雷達找人' : '等待躲藏者曝光…'} · 曝光中抓到 +{BONUS_POINTS}
+        </div>
+      )}
       <div className="hud-bottom">
         <div className="glass remaining">
           <span className="remaining-head">
@@ -397,5 +494,22 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       </div>
       {node}
     </>
+  )
+}
+
+function RadarStat({ code, me, now }: { code: string; me: Player; now: number }) {
+  const pending = (me.radarAt ?? 0) > (me.radarDoneAt ?? 0)
+  const cooling = !pending && now < (me.radarReadyAt ?? 0)
+  const hasResult = me.radarDoneAt > 0 && me.radarDist >= 0
+  return (
+    <button
+      type="button"
+      className={`stat radar ${!pending && !cooling ? 'is-warn' : ''}`}
+      disabled={pending || cooling}
+      onClick={() => requestRadar(code, me.id).catch(() => {})}
+    >
+      <span>{hasResult ? `雷達 · 上次 ${me.radarDist}m` : '雷達'}</span>
+      <b>{pending ? '掃描中' : cooling ? fmtClock(me.radarReadyAt - now) : '掃描'}</b>
+    </button>
   )
 }

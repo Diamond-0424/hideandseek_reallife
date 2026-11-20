@@ -11,7 +11,7 @@ setWorkerUrl(maplibreWorkerUrl)
 import type { LatLng } from '../types'
 import { IconLayers, IconLocate } from './icons'
 
-export type MapTone = 'boundary' | 'leak' | 'target' | 'zone'
+export type MapTone = 'boundary' | 'shrink' | 'leak' | 'ping' | 'target' | 'zone'
 
 export interface MapCircle {
   id: string
@@ -53,6 +53,8 @@ const BASE_KEY = 'hs.basemap'
 
 const TONE: Record<MapTone, L.PathOptions> = {
   boundary: { color: '#f2ede4', weight: 2.5, opacity: 0.85, fillColor: '#f2ede4', fillOpacity: 0.03, dashArray: '1 7', lineCap: 'round' },
+  shrink: { color: '#ff3b2f', weight: 2.5, opacity: 0.9, fillOpacity: 0, dashArray: '8 6' },
+  ping: { color: '#ffb800', weight: 2, opacity: 0.9, fillColor: '#ffb800', fillOpacity: 0.14 },
   leak: { color: '#ff3b2f', weight: 2.5, opacity: 1, fillColor: '#ff3b2f', fillOpacity: 0.22 },
   target: { color: '#0b0b0c', weight: 2.5, opacity: 1, fillColor: '#ffb800', fillOpacity: 0.75 },
   zone: { color: '#ffc400', weight: 2.5, opacity: 1, fillOpacity: 0, dashArray: '6 6' },

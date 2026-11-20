@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { nowMs } from '../lib/clock'
 import { writeLocation } from '../lib/room'
-import { HEARTBEAT_MS } from '../lib/rules'
+import { HEARTBEAT_MS, TRACK_HEARTBEAT_MS } from '../lib/rules'
 import type { Role } from '../types'
 
 export interface GeoFix {
@@ -48,25 +48,41 @@ export function useGeolocation(active: boolean): { fix: GeoFix | null; error: st
   return { fix, error }
 }
 
-/** 遊戲期間持續回報位置（心跳）。頁面不在前景時不送，房主就會判定離線。 */
-export function useHeartbeat(code: string, uid: string, role: Role | undefined, fix: GeoFix | null, active: boolean) {
-  const latest = useRef({ fix, role })
-  latest.current = { fix, role }
+/**
+ * 遊戲期間持續回報位置（心跳）。頁面不在前景時不送，房主就會判定離線。
+ * trackedUntil 之前（被即時追蹤中）改成每 2 秒送一次。
+ */
+export function useHeartbeat(
+  code: string,
+  uid: string,
+  role: Role | undefined,
+  fix: GeoFix | null,
+  active: boolean,
+  trackedUntil = 0,
+) {
+  const latest = useRef({ fix, role, trackedUntil })
+  latest.current = { fix, role, trackedUntil }
   useEffect(() => {
     if (!active) return
-    const beat = () => {
-      const { fix, role } = latest.current
+    let last = 0
+    const beat = (force = true) => {
+      const { fix, role, trackedUntil } = latest.current
       if (!fix || !role || document.visibilityState !== 'visible') return
-      writeLocation(code, uid, { lat: fix.lat, lng: fix.lng, acc: fix.acc, role, seenAt: nowMs() }).catch(
-        (e) => console.warn('heartbeat', e),
+      const now = nowMs()
+      const gap = now < trackedUntil ? TRACK_HEARTBEAT_MS : HEARTBEAT_MS
+      if (!force && now - last < gap - 200) return
+      last = now
+      writeLocation(code, uid, { lat: fix.lat, lng: fix.lng, acc: fix.acc, role, seenAt: now }).catch((e) =>
+        console.warn('heartbeat', e),
       )
     }
     beat()
-    const id = setInterval(beat, HEARTBEAT_MS)
-    document.addEventListener('visibilitychange', beat)
+    const id = setInterval(() => beat(false), TRACK_HEARTBEAT_MS)
+    const onVis = () => beat()
+    document.addEventListener('visibilitychange', onVis)
     return () => {
       clearInterval(id)
-      document.removeEventListener('visibilitychange', beat)
+      document.removeEventListener('visibilitychange', onVis)
     }
   }, [code, uid, active])
   // 角色改變（被抓變鬼）時立刻送一次，讓鬼的位置馬上對其他鬼可見

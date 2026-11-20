@@ -7,21 +7,28 @@ import { leaksCol, playerRef, roomRef, tasksCol } from '../lib/room'
 import {
   BOUNDARY_LEAK_COOLDOWN_MS,
   HOST_STALE_MS,
+  IDLE_MOVE_M,
   LEAK_SHOW_MS,
+  PING_RADIUS_M,
+  PING_SHOW_MS,
   TASK_GRACE_MS,
+  TRACK_MS,
   gotoTarget,
   leakCenter,
   leakRadius,
   nextTaskDelayMs,
   pickTaskType,
+  boundaryRadiusAt,
+  radarRound,
 } from '../lib/rules'
-import type { Leak, LeakReason, Player, PlayerLocation, Room, Task } from '../types'
+import type { LatLng, Leak, LeakReason, Player, PlayerLocation, Room, Task } from '../types'
 
 export interface HostData {
   room: Room
   players: Player[]
   locations: Record<string, PlayerLocation>
   pendingTasks: Task[]
+  leaks: Leak[]
 }
 
 const TICK_MS = 1000
@@ -39,6 +46,8 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
   /** 每局每人已發出的洩漏數（可能比快照新），用來算正確的洩漏等級 */
   const issuedLeaks = useRef(new Map<string, number>())
   const busy = useRef(false)
+  /** 靜止偵測：每局每人「開始沒移動」的位置與時間（只存在房主記憶體，房主重整就重算） */
+  const anchors = useRef(new Map<string, LatLng & { at: number }>())
 
   useEffect(() => {
     if (!enabled) return
@@ -76,7 +85,9 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
       ...(reason === 'boundary' ? { lastOutOfBoundsLeak: now } : {}),
     })
     if (loc) {
-      const radius = leakRadius(level)
+      // 任務失敗：直接精確位置 + 即時追蹤；離線、出界才走 80 → 30 → 精確 的升級
+      const track = reason === 'task'
+      const radius = track ? 0 : leakRadius(level)
       const ref = doc(leaksCol(room.code))
       const l: Leak = {
         id: ref.id,
@@ -87,14 +98,15 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
         radius,
         reason,
         createdAt: now,
-        expiresAt: now + LEAK_SHOW_MS,
+        expiresAt: now + (track ? TRACK_MS : LEAK_SHOW_MS),
+        ...(track ? { live: true, seenAt: loc.seenAt } : {}),
       }
       batch.set(ref, l)
     }
     await batch.commit()
   }
 
-  async function tick({ room, players, locations, pendingTasks }: HostData) {
+  async function tick({ room, players, locations, pendingTasks, leaks }: HostData) {
     const now = nowMs()
     const code = room.code
     const s = room.settings
@@ -109,7 +121,9 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
         hostSeen: now,
         hideEndsAt: room.hideEndsAt + gap,
         ...(room.status === 'playing' ? { endsAt: room.endsAt + gap } : {}),
+        ...(room.nextPingAt ? { nextPingAt: room.nextPingAt + gap } : {}),
       })
+      for (const a of anchors.current.values()) a.at += gap
       for (const t of pendingTasks) batch.update(doc(tasksCol(code), t.id), { deadline: t.deadline + gap })
       for (const p of players)
         if (p.nextTaskAt) batch.update(playerRef(code, p.id), { nextTaskAt: p.nextTaskAt + gap })
@@ -128,6 +142,7 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
           status: 'playing',
           playStartAt,
           endsAt: playStartAt + s.gameMin * 60_000,
+          nextPingAt: s.pingEveryMin ? playStartAt + s.pingEveryMin * 60_000 : 0,
         })
         for (const p of players)
           if (p.role === 'hider')
@@ -150,6 +165,14 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
 
     const byId = new Map(players.map((p) => [p.id, p]))
 
+    // ── 即時追蹤：把追蹤中的洩漏點移到最新位置 ──
+    for (const l of leaks) {
+      if (!l.live || l.expiresAt <= now) continue
+      const loc = locations[l.playerId]
+      if (!loc || loc.seenAt <= (l.seenAt ?? 0) || !once(`track:${l.id}:${loc.seenAt}`)) continue
+      await updateDoc(doc(leaksCol(code), l.id), { center: { lat: loc.lat, lng: loc.lng }, seenAt: loc.seenAt })
+    }
+
     // ── 任務逾時／取消 ──
     for (const t of pendingTasks) {
       const p = byId.get(t.playerId)
@@ -169,6 +192,47 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
       }
     }
 
+    // ── 定期廣播：公布全體躲藏者的粗略範圍（不扣分、不算曝光次數）──
+    if (room.nextPingAt && now >= room.nextPingAt && once(`ping:${room.nextPingAt}`)) {
+      const batch = writeBatch(db)
+      batch.update(roomRef(code), { nextPingAt: s.pingEveryMin ? room.nextPingAt + s.pingEveryMin * 60_000 : 0 })
+      for (const p of hiders) {
+        const loc = locations[p.id]
+        if (!loc) continue
+        const ref = doc(leaksCol(code))
+        batch.set(ref, {
+          id: ref.id,
+          playerId: p.id,
+          playerName: p.name,
+          level: 0,
+          center: leakCenter({ lat: loc.lat, lng: loc.lng }, PING_RADIUS_M),
+          radius: PING_RADIUS_M,
+          reason: 'ping',
+          createdAt: now,
+          expiresAt: now + PING_SHOW_MS,
+        } satisfies Leak)
+      }
+      await batch.commit()
+    }
+
+    // ── 鬼的雷達：回報最近躲藏者的距離 ──
+    for (const g of players) {
+      if (g.role !== 'ghost' || !g.radarAt || g.radarAt <= (g.radarDoneAt ?? 0)) continue
+      if (!once(`radar:${g.id}:${g.radarAt}`)) continue
+      const me = locations[g.id]
+      let best = Infinity
+      for (const h of hiders) {
+        const loc = locations[h.id]
+        if (me && loc && now - loc.seenAt < 60_000) best = Math.min(best, distance(me, loc))
+      }
+      await updateDoc(playerRef(code, g.id), {
+        radarDoneAt: g.radarAt,
+        radarDist: Number.isFinite(best) ? radarRound(best) : -1,
+        radarReadyAt: now + s.radarCooldownMin * 60_000,
+      })
+    }
+
+    const radiusNow = boundaryRadiusAt(s, room.playStartAt, now)
     const hasPending = new Set(pendingTasks.map((t) => t.playerId))
 
     for (const p of hiders) {
@@ -176,10 +240,11 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
 
       // ── 派任務 ──
       if (!hasPending.has(p.id) && p.nextTaskAt && now >= p.nextTaskAt && once(`task:${p.id}:${p.nextTaskAt}`)) {
-        let type = pickTaskType(Boolean(loc))
+        let type = pickTaskType(Boolean(loc), s.realTaskPct)
         let point = null
         if (type === 'goto' && loc) {
-          point = gotoTarget(loc, s.boundaryCenter, s.boundaryRadius)
+          // 目標點要落在任務結束時（可能已縮圈）的邊界內
+          point = gotoTarget(loc, s.boundaryCenter, boundaryRadiusAt(s, room.playStartAt, now + s.taskLimitSec * 1000))
           if (!point) type = 'move'
         }
         if (type === 'move' && loc) point = { lat: loc.lat, lng: loc.lng }
@@ -217,11 +282,23 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
         s.boundaryCenter &&
         loc &&
         now - loc.seenAt < 20_000 &&
-        distance(loc, s.boundaryCenter) - Math.min(loc.acc, 30) > s.boundaryRadius &&
+        distance(loc, s.boundaryCenter) - Math.min(loc.acc, 30) > radiusNow &&
         now - p.lastOutOfBoundsLeak > BOUNDARY_LEAK_COOLDOWN_MS &&
         once(`bound:${p.id}`, BOUNDARY_LEAK_COOLDOWN_MS)
       ) {
         await leak(room, p, loc, 'boundary')
+      }
+
+      // ── 靜止太久 ──
+      if (s.idleLeakMin && loc && now - loc.seenAt < 20_000) {
+        const key = `${room.round}:${p.id}`
+        const a = anchors.current.get(key)
+        if (!a || distance(a, loc) > IDLE_MOVE_M) {
+          anchors.current.set(key, { lat: loc.lat, lng: loc.lng, at: Math.max(now, room.playStartAt) })
+        } else if (now - a.at >= s.idleLeakMin * 60_000) {
+          a.at = now
+          await leak(room, p, loc, 'idle')
+        }
       }
     }
   }

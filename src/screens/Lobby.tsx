@@ -37,6 +37,14 @@ const MAIN: Field[] = [
 const ADVANCED: Field[] = [
   { key: 'taskLimitSec', label: '任務限時', unit: '秒', scale: 1, step: 15, min: 30, max: 600 },
   { key: 'awayToleranceSec', label: '離開頁面容許', unit: '秒', scale: 1, step: 5, min: 10, max: 300 },
+  { key: 'realTaskPct', label: '現實任務比例', unit: '%', scale: 1, step: 10, min: 0, max: 100 },
+]
+/** 0 = 關閉 */
+const GHOST_AIDS: Field[] = [
+  { key: 'radarCooldownMin', label: '雷達冷卻', unit: '分', scale: 1, step: 1, min: 0, max: 30 },
+  { key: 'shrinkEveryMin', label: '縮圈間隔', unit: '分', scale: 1, step: 1, min: 0, max: 60 },
+  { key: 'pingEveryMin', label: '定期廣播間隔', unit: '分', scale: 1, step: 1, min: 0, max: 60 },
+  { key: 'idleLeakMin', label: '靜止多久曝光', unit: '分', scale: 1, step: 1, min: 0, max: 30 },
 ]
 
 export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
@@ -144,6 +152,10 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
         <details className="advanced">
           <summary>進階</summary>
           <div className="settings">{ADVANCED.map(row)}</div>
+        </details>
+        <details className="advanced">
+          <summary>鬼的輔助 · 設 0 關閉</summary>
+          <div className="settings">{GHOST_AIDS.map(row)}</div>
         </details>
       </section>
 
