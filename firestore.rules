@@ -29,7 +29,8 @@ service cloud.firestore {
         && request.resource.data.hostId == resource.data.hostId;
 
       match /players/{uid} {
-        allow read: if isMember();
+        // 加入前要先讀自己的文件（判斷是不是重新接回），那時還不是成員
+        allow read: if signedIn() && (request.auth.uid == uid || isMember());
         allow create: if signedIn() && request.auth.uid == uid;
         // 自己、房主，或回報被抓時替鬼 +1
         allow update: if signedIn() && (
