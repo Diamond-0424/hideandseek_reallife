@@ -8,14 +8,14 @@ const NAME_KEY = 'hs.name'
 export function Home({ uid, onEnter }: { uid: string; onEnter: (code: string) => void }) {
   const [name, setName] = useState(() => localStorage.getItem(NAME_KEY) ?? '')
   const [code, setCode] = useState('')
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'create' | 'join' | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function go(kind: 'create' | 'join') {
     const n = name.trim()
     if (!n) return setError('請先輸入暱稱')
     if (kind === 'join' && !/^\d{4}$/.test(code)) return setError('房間代碼是 4 位數字')
-    setBusy(true)
+    setBusy(kind)
     setError(null)
     unlockAudio()
     try {
@@ -27,35 +27,54 @@ export function Home({ uid, onEnter }: { uid: string; onEnter: (code: string) =>
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
   return (
-    <main className="page home">
-      <h1>現實躲貓貓</h1>
-      <p className="muted">抽鬼、躲好、做任務，不然位置會曝光。</p>
-      <label>
-        暱稱
-        <input value={name} maxLength={12} onChange={(e) => setName(e.target.value)} placeholder="你的名字" />
-      </label>
-      <button disabled={busy} onClick={() => go('create')}>
-        建立房間
-      </button>
-      <div className="row">
-        <input
-          inputMode="numeric"
-          maxLength={4}
-          value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-          placeholder="房間代碼"
-        />
-        <button disabled={busy} onClick={() => go('join')}>
-          加入
+    <main className="screen home">
+      <div className="home-glow" aria-hidden />
+      <section className="hero rise">
+        <div className="logo" aria-hidden>
+          <span>🙈</span>
+        </div>
+        <h1>現實躲貓貓</h1>
+        <p className="muted">抽鬼、躲好、做任務——不然位置會曝光。</p>
+      </section>
+
+      <section className="card stack rise" style={{ animationDelay: '80ms' }}>
+        <label className="field">
+          <span>暱稱</span>
+          <input value={name} maxLength={12} onChange={(e) => setName(e.target.value)} placeholder="大家怎麼叫你" />
+        </label>
+        <button className="btn primary lg" disabled={busy !== null} onClick={() => go('create')}>
+          {busy === 'create' ? '建立中…' : '建立房間'}
         </button>
-      </div>
-      {error && <p className="danger">{error}</p>}
-      <p className="muted small">需要允許定位。遊戲中請保持這個頁面開著，螢幕會保持常亮，建議帶行動電源。</p>
+        <div className="divider">
+          <span>或加入朋友的房間</span>
+        </div>
+        <div className="join">
+          <input
+            className="code-input"
+            inputMode="numeric"
+            maxLength={4}
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+            placeholder="0000"
+            aria-label="房間代碼"
+          />
+          <button className="btn lg" disabled={busy !== null || code.length !== 4} onClick={() => go('join')}>
+            {busy === 'join' ? '加入中…' : '加入'}
+          </button>
+        </div>
+        {error && <p className="alert">{error}</p>}
+      </section>
+
+      <ul className="tips rise" style={{ animationDelay: '160ms' }}>
+        <li>📍 需要允許定位</li>
+        <li>🔆 遊戲中保持頁面開著，螢幕會常亮</li>
+        <li>🎧 戴一邊耳機才聽得到任務提示</li>
+      </ul>
     </main>
   )
 }

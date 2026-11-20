@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { GeoFix } from '../hooks/device'
 import { distance } from '../lib/geo'
+import { Ring } from '../components/ui'
 import { GOTO_RADIUS_M, MOVE_DISTANCE_M, TASK_LABEL, seeded } from '../lib/rules'
 import type { Task } from '../types'
 
@@ -11,14 +12,31 @@ interface Props {
   onDone: () => void
 }
 
+const ICON: Record<Task['type'], string> = {
+  math: '🧮',
+  reaction: '⚡',
+  memory: '🃏',
+  typing: '⌨️',
+  goto: '📍',
+  move: '🏃',
+}
+
 export function TaskPanel({ task, now, fix, onDone }: Props) {
-  const left = Math.max(0, Math.ceil((task.deadline - now) / 1000))
+  const leftMs = Math.max(0, task.deadline - now)
+  const left = Math.ceil(leftMs / 1000)
+  const total = Math.max(1, task.deadline - task.issuedAt)
   const realWorld = task.type === 'goto' || task.type === 'move'
   return (
-    <div className={`task-panel ${realWorld ? 'sheet' : 'full'}`}>
+    <div className={`task-panel ${realWorld ? 'is-sheet' : 'is-full'}`}>
       <div className="task-head">
-        <strong>任務：{TASK_LABEL[task.type]}</strong>
-        <span className={left <= 20 ? 'danger' : ''}>剩 {left} 秒</span>
+        <span className="task-icon">{ICON[task.type]}</span>
+        <div className="task-title">
+          <span className="eyebrow">新任務</span>
+          <strong>{TASK_LABEL[task.type]}</strong>
+        </div>
+        <Ring value={leftMs / total} size={48} stroke={4} danger={left <= 20}>
+          {left}
+        </Ring>
       </div>
       <div className="task-body">
         {task.type === 'math' && <MathTask seed={task.seed} onDone={onDone} />}
@@ -27,7 +45,7 @@ export function TaskPanel({ task, now, fix, onDone }: Props) {
         {task.type === 'typing' && <TypingTask seed={task.seed} onDone={onDone} />}
         {realWorld && <PlaceTask task={task} fix={fix} onDone={onDone} />}
       </div>
-      <p className="hint">沒在時間內完成，你的位置會洩漏給鬼。</p>
+      <p className="task-hint">時間內沒完成，你的位置會洩漏給鬼</p>
     </div>
   )
 }
@@ -65,12 +83,26 @@ function MathTask({ seed, onDone }: { seed: number; onDone: () => void }) {
     } else setWrong(true)
   }
   return (
-    <form onSubmit={submit} className="center">
-      <p className="muted">第 {i + 1} / 3 題</p>
-      <p className="big">{q.text} = ?</p>
-      <input inputMode="numeric" autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
-      <button type="submit">送出</button>
-      {wrong && <p className="danger">答錯了，再試一次</p>}
+    <form onSubmit={submit} className="task-game">
+      <Pips total={3} done={i} />
+      <p className={`question ${wrong ? 'shake' : ''}`} key={`${i}-${wrong}`}>
+        {q.text} <span className="muted">=</span> ?
+      </p>
+      <input
+        className="answer"
+        inputMode="numeric"
+        autoFocus
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value)
+          setWrong(false)
+        }}
+        placeholder="答案"
+      />
+      <button type="submit" className="btn primary lg block" disabled={!value}>
+        送出
+      </button>
+      {wrong && <p className="alert">答錯了，再試一次</p>}
     </form>
   )
 }
@@ -105,9 +137,9 @@ function ReactionTask({ seed, onDone }: { seed: number; onDone: () => void }) {
     slow: '太慢了！點一下重來',
   }[state]
   return (
-    <button className={`reaction ${state}`} onPointerDown={tap}>
-      <span className="big">{text}</span>
-      <span>成功 {hits} / 3</span>
+    <button className={`reaction is-${state}`} onPointerDown={tap}>
+      <span className="reaction-text">{text}</span>
+      <Pips total={3} done={hits} />
     </button>
   )
 }
@@ -141,8 +173,13 @@ function MemoryTask({ seed, onDone }: { seed: number; onDone: () => void }) {
   return (
     <div className="memory">
       {cards.map((c, i) => (
-        <button key={i} onClick={() => flip(i)} className={matched.has(i) ? 'matched' : ''}>
-          {open.includes(i) || matched.has(i) ? c : '❓'}
+        <button
+          key={i}
+          onClick={() => flip(i)}
+          className={`card-flip ${open.includes(i) || matched.has(i) ? 'is-up' : ''} ${matched.has(i) ? 'is-matched' : ''}`}
+        >
+          <span className="face back">?</span>
+          <span className="face front">{c}</span>
         </button>
       ))}
     </div>
@@ -171,10 +208,11 @@ function TypingTask({ seed, onDone }: { seed: number; onDone: () => void }) {
     }
   }, [value, phrase, onDone])
   return (
-    <div className="center">
-      <p>請打出：</p>
-      <p className="big">{phrase}</p>
-      <input autoFocus value={value} onChange={(e) => setValue(e.target.value)} />
+    <div className="task-game">
+      <span className="eyebrow">請完整打出</span>
+      <p className="phrase">{phrase}</p>
+      <input className="answer" autoFocus value={value} onChange={(e) => setValue(e.target.value)} placeholder="在這裡輸入" />
+      <Progress value={[...value].filter((ch, i) => ch === [...phrase][i]).length / [...phrase].length} />
     </div>
   )
 }
@@ -191,15 +229,42 @@ function PlaceTask({ task, fix, onDone }: { task: Task; fix: GeoFix | null; onDo
       onDone()
     }
   }, [reached, onDone])
-  if (!task.point) return <p>任務資料有誤，請等下一個任務。</p>
-  if (d === null) return <p>等待定位中…</p>
+  if (!task.point) return <p className="muted">任務資料有誤，請等下一個任務。</p>
+  if (d === null) return <p className="muted">等待定位中…</p>
   return task.type === 'goto' ? (
-    <p>
-      走到地圖上的 <b className="target">橘色目標</b>（{GOTO_RADIUS_M} 公尺內）。還差 <b>{Math.round(d)}</b> 公尺
-    </p>
+    <div className="place">
+      <p>
+        走到地圖上的<b className="target">橘色目標</b>（{GOTO_RADIUS_M} 公尺內）
+      </p>
+      <p className="metric">
+        還差 <b>{Math.max(0, Math.round(d - GOTO_RADIUS_M))}</b> 公尺
+      </p>
+    </div>
   ) : (
-    <p>
-      離開目前位置至少 {MOVE_DISTANCE_M} 公尺。已移動 <b>{Math.round(d)}</b> 公尺
-    </p>
+    <div className="place">
+      <p>離開目前位置至少 {MOVE_DISTANCE_M} 公尺</p>
+      <p className="metric">
+        已移動 <b>{Math.round(d)}</b> / {MOVE_DISTANCE_M} 公尺
+      </p>
+      <Progress value={d / MOVE_DISTANCE_M} />
+    </div>
+  )
+}
+
+function Pips({ total, done }: { total: number; done: number }) {
+  return (
+    <span className="pips" aria-label={`${done} / ${total}`}>
+      {Array.from({ length: total }, (_, i) => (
+        <i key={i} className={i < done ? 'on' : ''} />
+      ))}
+    </span>
+  )
+}
+
+function Progress({ value }: { value: number }) {
+  return (
+    <span className="progress">
+      <i style={{ width: `${Math.max(0, Math.min(1, value)) * 100}%` }} />
+    </span>
   )
 }

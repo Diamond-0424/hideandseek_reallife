@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { updateDoc } from 'firebase/firestore'
 import { MapView, type MapCircle, type MapDot } from '../components/MapView'
+import { Avatar, Ring, fmtClock } from '../components/ui'
 import { useAwayReport, useNow, type GeoFix } from '../hooks/device'
 import type { RoomData } from '../hooks/useRoomData'
 import { hostStale } from '../host/useHostLoop'
 import { nowMs } from '../lib/clock'
 import { completeTask, reportCaught, roomRef } from '../lib/room'
-import { HEARTBEAT_MS, REVEAL_MS, leakRadius } from '../lib/rules'
+import { GHOST_COOLDOWN_MS, HEARTBEAT_MS, REVEAL_MS, leakRadius } from '../lib/rules'
 import { beep } from '../lib/sound'
 import { TaskPanel } from '../tasks/TaskPanel'
 import type { Player, Room } from '../types'
@@ -19,11 +20,6 @@ interface Props {
   wakeSupported: boolean
 }
 
-const fmt = (ms: number) => {
-  const s = Math.max(0, Math.ceil(ms / 1000))
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
 export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
   const room = data.room!
   const now = useNow(500)
@@ -32,19 +28,24 @@ export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
   if (now < room.revealUntil) return <Reveal room={room} players={data.players} me={me} now={now} />
 
   return (
-    <main className="game">
-      <TopBar room={room} me={me} now={now} isHost={isHost} />
-      {!wakeSupported && <p className="warn">這個瀏覽器不支援螢幕常亮，請手動把自動鎖定關掉。</p>}
-      {geo.error && <p className="warn">{geo.error}</p>}
+    <main className={`game role-${me.role}`}>
       {me.role === 'hider' ? (
         <HiderView data={data} me={me} now={now} fix={geo.fix} />
       ) : (
         <GhostView data={data} me={me} now={now} fix={geo.fix} />
       )}
+      <TopBar room={room} me={me} now={now} isHost={isHost} />
+      <div className="notices">
+        {!wakeSupported && <p className="notice">此瀏覽器不支援螢幕常亮，請手動關閉自動鎖定</p>}
+        {geo.error && <p className="notice">{geo.error}</p>}
+      </div>
       {paused && (
         <div className="overlay">
-          <p className="big">房主離線，遊戲暫停中</p>
-          <p className="muted">房主回來後計時會自動順延</p>
+          <div className="sheet-card center">
+            <span className="spinner" />
+            <p className="title">房主離線，遊戲暫停中</p>
+            <p className="muted">房主回來後計時會自動順延</p>
+          </div>
         </div>
       )}
     </main>
@@ -55,14 +56,29 @@ function Reveal({ room, players, me, now }: { room: Room; players: Player[]; me:
   const ghosts = players.filter((p) => p.role === 'ghost')
   const rolling = room.revealUntil - now > REVEAL_MS / 2
   return (
-    <main className="page center reveal">
+    <main className={`screen reveal ${rolling ? '' : `is-${me.role}`}`}>
       {rolling ? (
-        <p className="big">抽鬼中…</p>
+        <div className="shuffle">
+          {players.slice(0, 6).map((p, i) => (
+            <span key={p.id} style={{ animationDelay: `${i * 90}ms` }}>
+              <Avatar id={p.id} name={p.name} size={52} />
+            </span>
+          ))}
+          <p className="title">抽鬼中…</p>
+        </div>
       ) : (
-        <>
-          <p className="big">{me.role === 'ghost' ? '👻 你是鬼！' : '🙈 你是躲藏者'}</p>
-          <p>鬼：{ghosts.map((g) => g.name).join('、')}</p>
-        </>
+        <div className="reveal-card">
+          <span className="reveal-emoji">{me.role === 'ghost' ? '👻' : '🙈'}</span>
+          <p className="reveal-title">{me.role === 'ghost' ? '你是鬼' : '你是躲藏者'}</p>
+          <p className="muted">{me.role === 'ghost' ? '等大家躲好，就出發抓人' : '快去找地方躲好！'}</p>
+          <div className="ghost-list">
+            {ghosts.map((g) => (
+              <span key={g.id} className="chip">
+                <Avatar id={g.id} name={g.name} size={22} ghost /> {g.name}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </main>
   )
@@ -70,22 +86,29 @@ function Reveal({ room, players, me, now }: { room: Room; players: Player[]; me:
 
 function TopBar({ room, me, now, isHost }: { room: Room; me: Player; now: number; isHost: boolean }) {
   const hiding = room.status === 'hiding'
+  const end = hiding ? room.hideEndsAt : room.endsAt
+  const total = hiding ? room.settings.hideSec * 1000 : room.settings.gameMin * 60_000
+  const left = end - now
   return (
-    <header className="topbar">
-      <span className={`role ${me.role}`}>{me.role === 'ghost' ? '👻 鬼' : '🙈 躲藏者'}</span>
-      <span>
-        {hiding ? '躲藏倒數 ' : '剩餘 '}
-        <b>{fmt((hiding ? room.hideEndsAt : room.endsAt) - now)}</b>
-      </span>
+    <header className="hud-top glass">
+      <span className={`role-pill ${me.role}`}>{me.role === 'ghost' ? '👻 鬼' : '🙈 躲藏者'}</span>
+      <div className="timer">
+        <span className="eyebrow">{hiding ? '躲藏倒數' : '剩餘時間'}</span>
+        <span className={`clock ${left < 60_000 ? 'is-danger' : ''}`}>{fmtClock(left)}</span>
+      </div>
+      <Ring value={left / total} size={36} stroke={3} danger={left < 60_000} />
       {isHost && (
         <button
-          className="ghost-btn small"
+          className="icon-btn"
+          aria-label="提前結束"
           onClick={() =>
             confirm('確定要提前結束這局？') &&
             updateDoc(roomRef(room.code), { status: 'ended', endedAt: nowMs() })
           }
         >
-          結束
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2" />
+          </svg>
         </button>
       )}
     </header>
@@ -93,15 +116,15 @@ function TopBar({ room, me, now, isHost }: { room: Room; me: Player; now: number
 }
 
 function useToast() {
-  const [toast, setToast] = useState<{ text: string; kind: string } | null>(null)
+  const [toast, setToast] = useState<{ text: string; kind: string; id: number } | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const show = useCallback((text: string, kind = 'info', ms = 5000) => {
-    setToast({ text, kind })
+    setToast({ text, kind, id: Date.now() })
     clearTimeout(timer.current)
     timer.current = setTimeout(() => setToast(null), ms)
   }, [])
   const node = toast && (
-    <div className={`toast ${toast.kind}`} onClick={() => setToast(null)}>
+    <div key={toast.id} className={`toast ${toast.kind}`} onClick={() => setToast(null)}>
       {toast.text}
     </div>
   )
@@ -142,7 +165,7 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       const why = { task: '任務失敗', away: '離開頁面太久', boundary: '跑出邊界' }[l.reason]
       const range = l.radius ? `${l.radius} 公尺範圍` : '精確位置'
       beep()
-      show(`⚠️ 你曝光了！（${why}，第 ${l.level} 次，${range}）`, 'danger', 8000)
+      show(`你曝光了！${why} · 第 ${l.level} 次 · ${range}`, 'danger', 8000)
     }
   }, [data.leaks, me.id, show])
 
@@ -157,58 +180,68 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
   const onDone = useCallback(() => {
     if (!task) return
     completeTask(room.code, task)
-      .then((ok) => show(ok ? '✅ 任務完成 +3' : '太晚了，任務已失效', ok ? 'ok' : 'danger'))
+      .then((ok) => show(ok ? '任務完成 +3' : '太晚了，任務已失效', ok ? 'ok' : 'danger'))
       .catch((e) => show(`送出失敗：${e.message}`, 'danger'))
   }, [task, room.code, show])
 
   const circles = useMemo<MapCircle[]>(() => {
     const c: MapCircle[] = []
-    if (s.boundaryCenter) c.push({ center: s.boundaryCenter, radius: s.boundaryRadius, color: '#4ea1ff', fill: 0.05, dashed: true })
-    if (task?.type === 'goto' && task.point) c.push({ center: task.point, radius: 15, color: '#ff9f1c', fill: 0.35, label: '目標' })
-    if (task?.type === 'move' && task.point) c.push({ center: task.point, radius: 50, color: '#ff9f1c', fill: 0.05, dashed: true })
+    if (s.boundaryCenter) c.push({ id: 'boundary', center: s.boundaryCenter, radius: s.boundaryRadius, tone: 'boundary' })
+    if (task?.type === 'goto' && task.point) c.push({ id: 'target', center: task.point, radius: 15, tone: 'target', label: '目標' })
+    if (task?.type === 'move' && task.point) c.push({ id: 'zone', center: task.point, radius: 50, tone: 'zone' })
     return c
   }, [s.boundaryCenter, s.boundaryRadius, task])
-  const dots = useMemo<MapDot[]>(() => (fix ? [{ at: fix, color: '#4ea1ff', big: true }] : []), [fix])
+  const dots = useMemo<MapDot[]>(() => (fix ? [{ id: 'me', at: fix, kind: 'self' }] : []), [fix])
 
   const ghosts = data.players.filter((p) => p.role === 'ghost' && p.id !== me.id)
+  const next = leakRadius(me.leaks + 1)
 
   return (
-    <div className={`view ${flash ? 'flash' : ''}`}>
-      <div className="stats">
-        <span>完成任務 {me.tasksDone}</span>
-        <span>已曝光 {me.leaks} 次</span>
-        <span className="muted">下次曝光：{leakRadius(me.leaks + 1) ? `${leakRadius(me.leaks + 1)}m 範圍` : '精確位置'}</span>
+    <>
+      <MapView className="map-full" circles={circles} dots={dots} focus={fix} />
+      {flash && <div className="flash" aria-hidden />}
+      <div className="hud-chips">
+        <span className="chip">✅ 任務 {me.tasksDone}</span>
+        <span className={`chip ${me.leaks ? 'warn' : ''}`}>📡 曝光 {me.leaks}</span>
+        <span className="chip dim">下次：{next ? `${next}m 範圍` : '精確位置'}</span>
       </div>
-      <div className="map-fill">
-        <MapView circles={circles} dots={dots} focus={fix} />
-      </div>
-      {!playing && <p className="banner">趁現在快去躲好！躲藏時間不會有任務。</p>}
+      {!playing && <div className="pill-banner">趁現在快去躲好，躲藏期間沒有任務</div>}
       {task && <TaskPanel key={task.id} task={task} now={now} fix={fix} onDone={onDone} />}
-      <button className="caught" onClick={() => setCatching(true)}>
-        我被抓到了
-      </button>
-      {catching && (
-        <div className="overlay">
-          <p className="big">被誰抓到？</p>
-          {ghosts.map((g) => (
-            <button
-              key={g.id}
-              className="primary"
-              onClick={() => {
-                setCatching(false)
-                reportCaught(room.code, me.id, g.id).catch((e) => show(e.message, 'danger'))
-              }}
-            >
-              {g.name}
-            </button>
-          ))}
-          <button className="ghost-btn" onClick={() => setCatching(false)}>
-            取消
+      {!task && (
+        <div className="hud-bottom">
+          <button className="btn danger lg caught" onClick={() => setCatching(true)}>
+            我被抓到了
           </button>
         </div>
       )}
+      {catching && (
+        <div className="overlay" onClick={() => setCatching(false)}>
+          <div className="sheet-card" onClick={(e) => e.stopPropagation()}>
+            <p className="title">被誰抓到？</p>
+            <p className="muted sm">按下後你會變成鬼，60 秒後可以開始抓人</p>
+            <div className="pick-list">
+              {ghosts.map((g) => (
+                <button
+                  key={g.id}
+                  className="pick"
+                  onClick={() => {
+                    setCatching(false)
+                    reportCaught(room.code, me.id, g.id).catch((e) => show(e.message, 'danger'))
+                  }}
+                >
+                  <Avatar id={g.id} name={g.name} ghost />
+                  <span>{g.name}</span>
+                </button>
+              ))}
+            </div>
+            <button className="btn subtle block" onClick={() => setCatching(false)}>
+              取消
+            </button>
+          </div>
+        </div>
+      )}
       {node}
-    </div>
+    </>
   )
 }
 
@@ -228,70 +261,84 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       seen.current.add(l.id)
       if (!first.current && l.expiresAt > nowMs()) {
         beep()
-        show(`📍 ${l.playerName} 曝光了！${l.radius ? `（${l.radius}m 範圍）` : '（精確位置）'}`, 'ok')
+        show(`${l.playerName} 曝光了！${l.radius ? `${l.radius}m 範圍` : '精確位置'}`, 'ok')
       }
     }
     first.current = false
   }, [data.leaks, show])
 
-  const activeLeaks = data.leaks.filter((l) => l.expiresAt > now)
+  const sec = Math.ceil(now / 1000)
+  const activeLeaks = useMemo(() => data.leaks.filter((l) => l.expiresAt > sec * 1000), [data.leaks, sec])
   const circles = useMemo<MapCircle[]>(() => {
     const c: MapCircle[] = []
-    if (s.boundaryCenter) c.push({ center: s.boundaryCenter, radius: s.boundaryRadius, color: '#4ea1ff', fill: 0.05, dashed: true })
+    if (s.boundaryCenter) c.push({ id: 'boundary', center: s.boundaryCenter, radius: s.boundaryRadius, tone: 'boundary' })
     for (const l of activeLeaks)
       c.push({
+        id: l.id,
         center: l.center,
         radius: l.radius,
-        color: '#ff4d6d',
-        fill: 0.25,
-        label: `${l.playerName} ${Math.ceil((l.expiresAt - now) / 1000)}s`,
+        tone: 'leak',
+        label: `${l.playerName} · ${Math.max(0, Math.ceil(l.expiresAt / 1000 - sec))}s`,
       })
     return c
-    // now 每 0.5 秒變一次，只在秒數改變時重畫
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.boundaryCenter, s.boundaryRadius, activeLeaks.map((l) => l.id).join(), Math.ceil(now / 1000)])
+  }, [s.boundaryCenter, s.boundaryRadius, activeLeaks, sec])
+
+  const bucket = Math.floor(now / 5000)
   const dots = useMemo<MapDot[]>(() => {
     const d: MapDot[] = []
     for (const p of data.players) {
       if (p.role !== 'ghost' || p.id === me.id) continue
       const loc = data.locations[p.id]
-      if (loc && now - loc.seenAt < 60_000) d.push({ at: loc, color: '#b5179e', label: p.name })
+      if (loc && bucket * 5000 - loc.seenAt < 60_000) d.push({ id: p.id, at: loc, kind: 'ghost', label: p.name })
     }
-    if (fix) d.push({ at: fix, color: '#ff4d6d', big: true })
+    if (fix) d.push({ id: 'me', at: fix, kind: 'self' })
     return d
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.players, data.locations, fix, me.id, Math.floor(now / 5000)])
+  }, [data.players, data.locations, fix, me.id, bucket])
 
   if (room.status === 'hiding')
     return (
-      <div className="view center">
-        <p className="big">原地等待</p>
-        <p>躲藏者正在找地方躲，倒數結束才能出發。</p>
-        <p className="countdown">{fmt(room.hideEndsAt - now)}</p>
+      <div className="wait-screen">
+        <Ring value={(room.hideEndsAt - now) / (s.hideSec * 1000)} size={200} stroke={8}>
+          <span className="clock xl">{fmtClock(room.hideEndsAt - now)}</span>
+        </Ring>
+        <p className="title">原地等待</p>
+        <p className="muted">躲藏者正在找地方躲，倒數結束才能出發</p>
       </div>
     )
 
   if (now < me.ghostReadyAt)
     return (
-      <div className="view center">
-        <p className="big">你被抓到了，變成鬼！</p>
-        <p>冷卻中，結束後才能開始抓人</p>
-        <p className="countdown">{fmt(me.ghostReadyAt - now)}</p>
+      <div className="wait-screen">
+        <Ring value={(me.ghostReadyAt - now) / GHOST_COOLDOWN_MS} size={200} stroke={8} danger>
+          <span className="clock xl">{fmtClock(me.ghostReadyAt - now)}</span>
+        </Ring>
+        <p className="title">你變成鬼了 👻</p>
+        <p className="muted">冷卻結束後才能開始抓人</p>
       </div>
     )
 
   const hiders = data.players.filter((p) => p.role === 'hider')
   return (
-    <div className="view">
-      <div className="stats">
-        <span>抓到 {me.catches} 人</span>
-        <span>剩下：{hiders.map((h) => h.name).join('、') || '無'}</span>
+    <>
+      <MapView className="map-full" circles={circles} dots={dots} focus={fix} />
+      <div className="hud-chips">
+        <span className="chip">🎯 抓到 {me.catches}</span>
+        {activeLeaks.length > 0 && <span className="chip warn">📡 {activeLeaks.length} 個曝光中</span>}
       </div>
-      <div className="map-fill">
-        <MapView circles={circles} dots={dots} focus={fix} />
+      {activeLeaks.length === 0 && <div className="pill-banner">等待躲藏者曝光…</div>}
+      <div className="hud-bottom">
+        <div className="glass remaining">
+          <span className="eyebrow">還沒被抓 · {hiders.length}</span>
+          <div className="remaining-list">
+            {hiders.map((h) => (
+              <span key={h.id} className="chip">
+                <Avatar id={h.id} name={h.name} size={22} /> {h.name}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
-      {activeLeaks.length === 0 && <p className="banner">等待躲藏者曝光…</p>}
       {node}
-    </div>
+    </>
   )
 }

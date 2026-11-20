@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Splash } from '../components/ui'
 import { useGeolocation, useHeartbeat, useWakeLock } from '../hooks/device'
 import { useRoomData } from '../hooks/useRoomData'
 import { useHostLoop } from '../host/useHostLoop'
@@ -32,7 +33,7 @@ export function RoomScreen({ code, uid, onExit }: Props) {
     if (data.gone) onExit()
   }, [data.gone, onExit])
 
-  if (!room || !me) return <main className="page">載入房間 {code}…</main>
+  if (!room || !me) return <Splash text={`載入房間 ${code}…`} />
 
   if (room.status === 'lobby')
     return <Lobby room={room} players={players} me={me} isHost={isHost} fix={geo.fix} onExit={onExit} />
