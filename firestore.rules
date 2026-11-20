@@ -1,0 +1,66 @@
+rules_version = '2';
+
+// 朋友之間玩，以「良心制」為前提：規則只擋住最容易誤看的地方（躲藏者的位置），
+// 不追求完全防作弊。
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /clock/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /rooms/{code} {
+      function roomData() {
+        return get(/databases/$(database)/documents/rooms/$(code)).data;
+      }
+      function isHost() {
+        return signedIn() && roomData().hostId == request.auth.uid;
+      }
+      function isMember() {
+        return signedIn() && exists(/databases/$(database)/documents/rooms/$(code)/players/$(request.auth.uid));
+      }
+
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.hostId == request.auth.uid;
+      allow update: if signedIn() && resource.data.hostId == request.auth.uid
+        && request.resource.data.hostId == resource.data.hostId;
+
+      match /players/{uid} {
+        allow read: if isMember();
+        allow create: if signedIn() && request.auth.uid == uid;
+        // 自己、房主，或回報被抓時替鬼 +1
+        allow update: if signedIn() && (
+          request.auth.uid == uid || isHost() ||
+          (isMember() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['catches']))
+        );
+        allow delete: if signedIn() && (request.auth.uid == uid || isHost());
+      }
+
+      match /tasks/{taskId} {
+        allow read: if isHost() || (signedIn() && resource.data.playerId == request.auth.uid);
+        allow create, delete: if isHost();
+        allow update: if isHost() || (
+          signedIn() && resource.data.playerId == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+          request.resource.data.status == 'done'
+        );
+      }
+
+      match /leaks/{leakId} {
+        allow read: if isMember();
+        allow write: if isHost();
+      }
+
+      // 躲藏者的位置只有本人與房主（主持人）讀得到；鬼的位置其他成員可讀
+      match /locations/{uid} {
+        allow read: if signedIn() && (
+          request.auth.uid == uid || isHost() || (isMember() && resource.data.role == 'ghost')
+        );
+        allow write: if signedIn() && request.auth.uid == uid;
+      }
+    }
+  }
+}
