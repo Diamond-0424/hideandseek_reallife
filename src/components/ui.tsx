@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
+import { IconGhost } from './icons'
 
-const PALETTE = ['#7aa2ff', '#5ad1c8', '#c792ea', '#ffb020', '#8bd46f', '#ff8a65', '#4fc3f7', '#f48fb1']
+const PALETTE = ['#3d6bff', '#00a3c4', '#8b5cf6', '#e0a000', '#1fb46b', '#ff7a3d', '#5b82ff', '#e0559b']
 
 export function playerColor(id: string): string {
   let h = 0
@@ -14,7 +15,7 @@ export function Avatar({ id, name, size = 36, ghost = false }: { id: string; nam
       className={`avatar ${ghost ? 'is-ghost' : ''}`}
       style={{ width: size, height: size, fontSize: size * 0.42, ['--c' as string]: playerColor(id) }}
     >
-      {ghost ? '👻' : [...name][0]?.toUpperCase()}
+      {ghost ? <IconGhost size={size * 0.6} /> : [...name][0]?.toUpperCase()}
     </span>
   )
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Avatar } from '../components/ui'
+import { IconGhost, IconHider, IconRepeat } from '../components/icons'
 import { leaveRoom, rematch } from '../lib/room'
 import { score } from '../lib/rules'
 import type { Player, Room } from '../types'
@@ -12,8 +13,6 @@ interface Props {
   onExit: () => void
 }
 
-const MEDAL = ['🥇', '🥈', '🥉']
-
 export function Results({ room, players, me, isHost, onExit }: Props) {
   const [busy, setBusy] = useState(false)
   const rows = players
@@ -23,9 +22,9 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
 
   return (
     <main className="screen results">
-      <section className="results-hero rise">
-        <span className="results-emoji">{hidersWon ? '🙈' : '👻'}</span>
-        <h1>{hidersWon ? '躲藏方撐到最後！' : '鬼抓到所有人！'}</h1>
+      <section className={`results-hero rise ${hidersWon ? '' : 'ghost-win'}`}>
+        <span className="results-mark">{hidersWon ? <IconHider size={32} /> : <IconGhost size={32} />}</span>
+        <h1>{hidersWon ? '躲藏方撐到最後' : '鬼抓到所有人'}</h1>
         <p className="muted">第 {room.round} 局結算</p>
       </section>
 
@@ -36,7 +35,7 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
             className={`rank-row rise ${p.id === me.id ? 'is-me' : ''} ${i === 0 ? 'is-first' : ''}`}
             style={{ animationDelay: `${80 + i * 60}ms` }}
           >
-            <span className="rank">{MEDAL[i] ?? i + 1}</span>
+            <span className={`rank ${i < 3 ? `r${i + 1}` : ''}`}>{i + 1}</span>
             <Avatar id={p.id} name={p.name} ghost={p.role === 'ghost'} />
             <div className="rank-main">
               <span className="name">
@@ -54,7 +53,20 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
           </li>
         ))}
       </ol>
-      <p className="muted sm center-text">存活每分鐘 +1 · 任務 +3 · 曝光 −2 · 抓到一人 +10</p>
+      <p className="rule-line">
+        <span>
+          存活每分鐘 <b>+1</b>
+        </span>
+        <span>
+          任務 <b>+3</b>
+        </span>
+        <span>
+          曝光 <b>−2</b>
+        </span>
+        <span>
+          抓到一人 <b>+10</b>
+        </span>
+      </p>
 
       <div className="dock">
         {isHost ? (
@@ -66,7 +78,7 @@ export function Results({ room, players, me, isHost, onExit }: Props) {
               await rematch(room, players).finally(() => setBusy(false))
             }}
           >
-            🔁 再來一局
+            <IconRepeat size={20} /> 再來一局
           </button>
         ) : (
           <p className="waiting">等待房主開下一局</p>

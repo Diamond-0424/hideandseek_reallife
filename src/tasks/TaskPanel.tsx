@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { GeoFix } from '../hooks/device'
 import { distance } from '../lib/geo'
 import { Ring } from '../components/ui'
+import { IconAlert, SHAPES, Shape, TaskIcon, type ShapeName } from '../components/icons'
 import { GOTO_RADIUS_M, MOVE_DISTANCE_M, TASK_LABEL, seeded } from '../lib/rules'
 import type { Task } from '../types'
 
@@ -12,15 +13,6 @@ interface Props {
   onDone: () => void
 }
 
-const ICON: Record<Task['type'], string> = {
-  math: '🧮',
-  reaction: '⚡',
-  memory: '🃏',
-  typing: '⌨️',
-  goto: '📍',
-  move: '🏃',
-}
-
 export function TaskPanel({ task, now, fix, onDone }: Props) {
   const leftMs = Math.max(0, task.deadline - now)
   const left = Math.ceil(leftMs / 1000)
@@ -29,7 +21,9 @@ export function TaskPanel({ task, now, fix, onDone }: Props) {
   return (
     <div className={`task-panel ${realWorld ? 'is-sheet' : 'is-full'}`}>
       <div className="task-head">
-        <span className="task-icon">{ICON[task.type]}</span>
+        <span className="task-icon">
+          <TaskIcon type={task.type} size={26} />
+        </span>
         <div className="task-title">
           <span className="eyebrow">新任務</span>
           <strong>{TASK_LABEL[task.type]}</strong>
@@ -45,7 +39,9 @@ export function TaskPanel({ task, now, fix, onDone }: Props) {
         {task.type === 'typing' && <TypingTask seed={task.seed} onDone={onDone} />}
         {realWorld && <PlaceTask task={task} fix={fix} onDone={onDone} />}
       </div>
-      <p className="task-hint">時間內沒完成，你的位置會洩漏給鬼</p>
+      <p className="task-hint">
+        <IconAlert size={14} /> 時間內沒完成，你的位置會洩漏給鬼
+      </p>
     </div>
   )
 }
@@ -145,11 +141,10 @@ function ReactionTask({ seed, onDone }: { seed: number; onDone: () => void }) {
 }
 
 // ── 記憶翻牌：4 對 ──
-const SYMBOLS = ['🍎', '🚲', '🎈', '🐸', '⭐', '🎧', '🌵', '🍙']
 function MemoryTask({ seed, onDone }: { seed: number; onDone: () => void }) {
   const cards = useMemo(() => {
     const r = seeded(seed)
-    const picks = [...SYMBOLS].sort(() => r() - 0.5).slice(0, 4)
+    const picks: ShapeName[] = [...SHAPES].sort(() => r() - 0.5).slice(0, 4)
     return [...picks, ...picks].sort(() => r() - 0.5)
   }, [seed])
   const [open, setOpen] = useState<number[]>([])
@@ -178,8 +173,10 @@ function MemoryTask({ seed, onDone }: { seed: number; onDone: () => void }) {
           onClick={() => flip(i)}
           className={`card-flip ${open.includes(i) || matched.has(i) ? 'is-up' : ''} ${matched.has(i) ? 'is-matched' : ''}`}
         >
-          <span className="face back">?</span>
-          <span className="face front">{c}</span>
+          <span className="face back" />
+          <span className="face front">
+            <Shape name={c} size={34} />
+          </span>
         </button>
       ))}
     </div>
@@ -234,7 +231,7 @@ function PlaceTask({ task, fix, onDone }: { task: Task; fix: GeoFix | null; onDo
   return task.type === 'goto' ? (
     <div className="place">
       <p>
-        走到地圖上的<b className="target">橘色目標</b>（{GOTO_RADIUS_M} 公尺內）
+        走到地圖上的<b className="target">黃色目標</b>（{GOTO_RADIUS_M} 公尺內）
       </p>
       <p className="metric">
         還差 <b>{Math.max(0, Math.round(d - GOTO_RADIUS_M))}</b> 公尺

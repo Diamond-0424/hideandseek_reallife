@@ -9,6 +9,7 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
 
 setWorkerUrl(maplibreWorkerUrl)
 import type { LatLng } from '../types'
+import { IconLayers, IconLocate } from './icons'
 
 export type MapTone = 'boundary' | 'leak' | 'target' | 'zone'
 
@@ -51,10 +52,10 @@ export type BaseMap = 'vector' | 'satellite'
 const BASE_KEY = 'hs.basemap'
 
 const TONE: Record<MapTone, L.PathOptions> = {
-  boundary: { color: '#7aa2ff', weight: 1.5, opacity: 0.7, fillColor: '#7aa2ff', fillOpacity: 0.04, dashArray: '2 8', lineCap: 'round' },
-  leak: { color: '#ff5470', weight: 2, opacity: 0.9, fillColor: '#ff5470', fillOpacity: 0.18 },
-  target: { color: '#ffb020', weight: 2, opacity: 1, fillColor: '#ffb020', fillOpacity: 0.28 },
-  zone: { color: '#ffb020', weight: 1.5, opacity: 0.8, fillOpacity: 0, dashArray: '4 6' },
+  boundary: { color: '#f2ede4', weight: 2.5, opacity: 0.85, fillColor: '#f2ede4', fillOpacity: 0.03, dashArray: '1 7', lineCap: 'round' },
+  leak: { color: '#ff3b2f', weight: 2.5, opacity: 1, fillColor: '#ff3b2f', fillOpacity: 0.22 },
+  target: { color: '#0b0b0c', weight: 2.5, opacity: 1, fillColor: '#ffb800', fillOpacity: 0.75 },
+  zone: { color: '#ffc400', weight: 2.5, opacity: 1, fillOpacity: 0, dashArray: '6 6' },
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -173,7 +174,7 @@ export function MapView({ circles = [], dots = [], focus, onClick, className = '
         layer.setRadius(c.radius)
         if (c.label) {
           if (!entry.tip) {
-            entry.tip = L.tooltip({ permanent: true, direction: 'center', className: 'map-chip' })
+            entry.tip = L.tooltip({ permanent: true, direction: 'center', className: `map-chip tone-${c.tone}` })
             layer.bindTooltip(entry.tip)
           }
           layer.setTooltipContent(esc(c.label))
@@ -229,7 +230,8 @@ export function MapView({ circles = [], dots = [], focus, onClick, className = '
         aria-label="切換底圖"
         onClick={() => setBase((b) => (b === 'vector' ? 'satellite' : 'vector'))}
       >
-        {base === 'vector' ? '🛰️ 衛星' : '🗺️ 地圖'}
+        <IconLayers size={16} />
+        {base === 'vector' ? '衛星' : '地圖'}
       </button>
       {focus && offCenter && (
         <button
@@ -240,10 +242,7 @@ export function MapView({ circles = [], dots = [], focus, onClick, className = '
             setOffCenter(false)
           }}
         >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="3.5" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" strokeLinecap="round" />
-          </svg>
+          <IconLocate size={22} />
         </button>
       )}
     </div>

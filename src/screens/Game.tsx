@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { updateDoc } from 'firebase/firestore'
 import { MapView, type MapCircle, type MapDot } from '../components/MapView'
 import { Avatar, Ring, fmtClock } from '../components/ui'
+import { IconAlert, IconCheck, IconGhost, IconHider, IconInfo, IconStop } from '../components/icons'
 import { useAwayReport, useNow, type GeoFix } from '../hooks/device'
 import type { RoomData } from '../hooks/useRoomData'
 import { hostStale } from '../host/useHostLoop'
@@ -36,8 +37,16 @@ export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
       )}
       <TopBar room={room} me={me} now={now} isHost={isHost} />
       <div className="notices">
-        {!wakeSupported && <p className="notice">此瀏覽器不支援螢幕常亮，請手動關閉自動鎖定</p>}
-        {geo.error && <p className="notice">{geo.error}</p>}
+        {!wakeSupported && (
+          <p className="notice">
+            <IconAlert size={16} /> 此瀏覽器不支援螢幕常亮，請手動關閉自動鎖定
+          </p>
+        )}
+        {geo.error && (
+          <p className="notice">
+            <IconAlert size={16} /> {geo.error}
+          </p>
+        )}
       </div>
       {paused && (
         <div className="overlay">
@@ -68,7 +77,7 @@ function Reveal({ room, players, me, now }: { room: Room; players: Player[]; me:
         </div>
       ) : (
         <div className="reveal-card">
-          <span className="reveal-emoji">{me.role === 'ghost' ? '👻' : '🙈'}</span>
+          <span className="reveal-mark">{me.role === 'ghost' ? <IconGhost size={84} /> : <IconHider size={84} />}</span>
           <p className="reveal-title">{me.role === 'ghost' ? '你是鬼' : '你是躲藏者'}</p>
           <p className="muted">{me.role === 'ghost' ? '等大家躲好，就出發抓人' : '快去找地方躲好！'}</p>
           <div className="ghost-list">
@@ -91,12 +100,15 @@ function TopBar({ room, me, now, isHost }: { room: Room; me: Player; now: number
   const left = end - now
   return (
     <header className="hud-top glass">
-      <span className={`role-pill ${me.role}`}>{me.role === 'ghost' ? '👻 鬼' : '🙈 躲藏者'}</span>
+      <span className={`role-block ${me.role}`}>
+        {me.role === 'ghost' ? <IconGhost size={26} /> : <IconHider size={26} />}
+        {me.role === 'ghost' ? '鬼' : '躲藏者'}
+      </span>
       <div className="timer">
         <span className="eyebrow">{hiding ? '躲藏倒數' : '剩餘時間'}</span>
         <span className={`clock ${left < 60_000 ? 'is-danger' : ''}`}>{fmtClock(left)}</span>
       </div>
-      <Ring value={left / total} size={36} stroke={3} danger={left < 60_000} />
+      <Ring value={left / total} size={40} stroke={4} danger={left < 60_000} />
       {isHost && (
         <button
           className="icon-btn"
@@ -106,9 +118,7 @@ function TopBar({ room, me, now, isHost }: { room: Room; me: Player; now: number
             updateDoc(roomRef(room.code), { status: 'ended', endedAt: nowMs() })
           }
         >
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
-            <rect x="6" y="6" width="12" height="12" rx="2" />
-          </svg>
+          <IconStop size={18} />
         </button>
       )}
     </header>
@@ -124,8 +134,9 @@ function useToast() {
     timer.current = setTimeout(() => setToast(null), ms)
   }, [])
   const node = toast && (
-    <div key={toast.id} className={`toast ${toast.kind}`} onClick={() => setToast(null)}>
-      {toast.text}
+    <div key={toast.id} className={`toast ${toast.kind}`} onClick={() => setToast(null)} role="status">
+      {toast.kind === 'danger' ? <IconAlert size={22} /> : toast.kind === 'ok' ? <IconCheck size={22} /> : <IconInfo size={22} />}
+      <span>{toast.text}</span>
     </div>
   )
   return { show, node }
@@ -165,7 +176,7 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       const why = { task: '任務失敗', away: '離開頁面太久', boundary: '跑出邊界' }[l.reason]
       const range = l.radius ? `${l.radius} 公尺範圍` : '精確位置'
       beep()
-      show(`你曝光了！${why} · 第 ${l.level} 次 · ${range}`, 'danger', 8000)
+      show(`你曝光了：${why} · 第 ${l.level} 次 · ${range}`, 'danger', 8000)
     }
   }, [data.leaks, me.id, show])
 
@@ -200,10 +211,31 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
     <>
       <MapView className="map-full" circles={circles} dots={dots} focus={fix} />
       {flash && <div className="flash" aria-hidden />}
-      <div className="hud-chips">
-        <span className="chip">✅ 任務 {me.tasksDone}</span>
-        <span className={`chip ${me.leaks ? 'warn' : ''}`}>📡 曝光 {me.leaks}</span>
-        <span className="chip dim">下次：{next ? `${next}m 範圍` : '精確位置'}</span>
+      <div className="hud-chips stats">
+        <span className="stat is-ok">
+          <span>任務完成</span>
+          <b>{me.tasksDone}</b>
+        </span>
+        <span className={`stat ${me.leaks ? 'is-danger' : ''}`}>
+          <span>已曝光</span>
+          <b>
+            {me.leaks}
+            <small>次</small>
+          </b>
+        </span>
+        <span className={`stat ${next ? '' : 'is-warn'}`}>
+          <span>下次曝光</span>
+          <b>
+            {next ? (
+              <>
+                {next}
+                <small>m</small>
+              </>
+            ) : (
+              '精確'
+            )}
+          </b>
+        </span>
       </div>
       {!playing && <div className="pill-banner">趁現在快去躲好，躲藏期間沒有任務</div>}
       {task && <TaskPanel key={task.id} task={task} now={now} fix={fix} onDone={onDone} />}
@@ -261,7 +293,7 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
       seen.current.add(l.id)
       if (!first.current && l.expiresAt > nowMs()) {
         beep()
-        show(`${l.playerName} 曝光了！${l.radius ? `${l.radius}m 範圍` : '精確位置'}`, 'ok')
+        show(`${l.playerName} 曝光了：${l.radius ? `${l.radius}m 範圍` : '精確位置'}`, 'ok')
       }
     }
     first.current = false
@@ -308,11 +340,13 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
 
   if (now < me.ghostReadyAt)
     return (
-      <div className="wait-screen">
-        <Ring value={(me.ghostReadyAt - now) / GHOST_COOLDOWN_MS} size={200} stroke={8} danger>
+      <div className="wait-screen is-cooldown">
+        <Ring value={(me.ghostReadyAt - now) / GHOST_COOLDOWN_MS} size={200} stroke={8}>
           <span className="clock xl">{fmtClock(me.ghostReadyAt - now)}</span>
         </Ring>
-        <p className="title">你變成鬼了 👻</p>
+        <p className="title">
+          <IconGhost size={28} /> 你變成鬼了
+        </p>
         <p className="muted">冷卻結束後才能開始抓人</p>
       </div>
     )
@@ -321,14 +355,26 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
   return (
     <>
       <MapView className="map-full" circles={circles} dots={dots} focus={fix} />
-      <div className="hud-chips">
-        <span className="chip">🎯 抓到 {me.catches}</span>
-        {activeLeaks.length > 0 && <span className="chip warn">📡 {activeLeaks.length} 個曝光中</span>}
+      <div className="hud-chips stats">
+        <span className="stat">
+          <span>已抓到</span>
+          <b>
+            {me.catches}
+            <small>人</small>
+          </b>
+        </span>
+        <span className={`stat ${activeLeaks.length ? 'is-danger' : ''}`}>
+          <span>曝光中</span>
+          <b>{activeLeaks.length}</b>
+        </span>
       </div>
       {activeLeaks.length === 0 && <div className="pill-banner">等待躲藏者曝光…</div>}
       <div className="hud-bottom">
         <div className="glass remaining">
-          <span className="eyebrow">還沒被抓 · {hiders.length}</span>
+          <span className="remaining-head">
+            <b>{hiders.length}</b>
+            <span className="eyebrow">人還沒被抓</span>
+          </span>
           <div className="remaining-list">
             {hiders.map((h) => (
               <span key={h.id} className="chip">

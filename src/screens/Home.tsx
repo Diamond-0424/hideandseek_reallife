@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { requestLocation } from '../hooks/device'
 import { createRoom, joinRoom, saveRoom } from '../lib/room'
 import { unlockAudio } from '../lib/sound'
+import { IconAlert, IconHeadphones, IconPin, IconSun, Logo } from '../components/icons'
 
 const NAME_KEY = 'hs.name'
 
@@ -33,13 +34,17 @@ export function Home({ uid, onEnter }: { uid: string; onEnter: (code: string) =>
 
   return (
     <main className="screen home">
-      <div className="home-glow" aria-hidden />
       <section className="hero rise">
-        <div className="logo" aria-hidden>
-          <span>🙈</span>
-        </div>
+        <Logo size={64} />
         <h1>現實躲貓貓</h1>
-        <p className="muted">抽鬼、躲好、做任務——不然位置會曝光。</p>
+        <span className="swatches" aria-hidden>
+          <i />
+          <i />
+          <i />
+        </span>
+        <p>
+          抽鬼、躲好、做任務。<b>任務失敗，位置就會曝光。</b>
+        </p>
       </section>
 
       <section className="card stack rise" style={{ animationDelay: '80ms' }}>
@@ -67,13 +72,26 @@ export function Home({ uid, onEnter }: { uid: string; onEnter: (code: string) =>
             {busy === 'join' ? '加入中…' : '加入'}
           </button>
         </div>
-        {error && <p className="alert">{error}</p>}
+        {error && (
+          <p className="alert">
+            <IconAlert size={16} /> {error}
+          </p>
+        )}
       </section>
 
       <ul className="tips rise" style={{ animationDelay: '160ms' }}>
-        <li>📍 需要允許定位</li>
-        <li>🔆 遊戲中保持頁面開著，螢幕會常亮</li>
-        <li>🎧 戴一邊耳機才聽得到任務提示</li>
+        <li>
+          <IconPin size={22} />
+          需要允許定位
+        </li>
+        <li>
+          <IconSun size={22} />
+          頁面保持開著，螢幕會常亮
+        </li>
+        <li>
+          <IconHeadphones size={22} />
+          戴一邊耳機聽任務提示
+        </li>
       </ul>
     </main>
   )

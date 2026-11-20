@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { MapView, type MapCircle, type MapDot } from '../components/MapView'
 import { Avatar, Stepper } from '../components/ui'
+import { IconAlert, IconDice, IconLocate, IconPin } from '../components/icons'
 import type { GeoFix } from '../hooks/device'
 import { drawAndStart, leaveRoom, updateSettings } from '../lib/room'
 import type { Player, Room, Settings } from '../types'
@@ -84,7 +85,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
     <main className="screen lobby">
       <header className="lobby-head rise">
         <button
-          className="room-code"
+          className={`room-code ${copied ? 'is-copied' : ''}`}
           onClick={() => {
             navigator.clipboard?.writeText(room.code).then(() => {
               setCopied(true)
@@ -92,7 +93,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
             })
           }}
         >
-          <span className="eyebrow">{copied ? '已複製！' : '房間代碼 · 點一下複製'}</span>
+          <span className="eyebrow">{copied ? '已複製' : '房間代碼 · 點一下複製'}</span>
           <span className="digits">
             {[...room.code].map((d, i) => (
               <b key={i}>{d}</b>
@@ -133,7 +134,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
       </section>
 
       <section className="card rise" style={{ animationDelay: '120ms' }}>
-        <h2>規則設定{!isHost && <span className="muted sm"> · 由房主設定</span>}</h2>
+        <h2>規則設定{!isHost && <span> · 由房主設定</span>}</h2>
         <div className="settings">{MAIN.map(row)}</div>
         <details className="advanced">
           <summary>進階</summary>
@@ -150,7 +151,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
               disabled={!fix}
               onClick={() => fix && save({ boundaryCenter: { lat: fix.lat, lng: fix.lng } })}
             >
-              📍 用我的位置
+              <IconLocate size={16} /> 用我的位置
             </button>
           )}
         </div>
@@ -161,16 +162,31 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
           focus={s.boundaryCenter ?? fix}
           onClick={isHost ? (p) => save({ boundaryCenter: p }) : undefined}
         />
-        <p className="muted sm map-hint">
+        <p className={`sm map-hint ${s.boundaryCenter ? 'is-set' : 'muted'}`}>
+          <IconPin size={16} />
           {s.boundaryCenter ? `半徑 ${s.boundaryRadius} 公尺，出界會曝光` : isHost ? '點地圖設定邊界中心' : '等待房主設定邊界'}
         </p>
       </section>
 
       <div className="dock">
-        {error && <p className="alert">{error}</p>}
+        {error && (
+          <p className="alert">
+            <IconAlert size={16} /> {error}
+          </p>
+        )}
         {isHost ? (
           <button className="btn primary lg block" disabled={!canStart || busy} onClick={start}>
-            {players.length < 2 ? '等待更多玩家加入…' : !s.boundaryCenter ? '先設定遊戲邊界' : busy ? '抽鬼中…' : '🎲 抽鬼開始'}
+            {players.length < 2 ? (
+              '等待更多玩家加入…'
+            ) : !s.boundaryCenter ? (
+              '先設定遊戲邊界'
+            ) : busy ? (
+              '抽鬼中…'
+            ) : (
+              <>
+                <IconDice size={20} /> 抽鬼開始
+              </>
+            )}
           </button>
         ) : (
           <p className="waiting">
