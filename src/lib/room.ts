@@ -47,6 +47,7 @@ function freshPlayerFields(): Omit<Player, 'id' | 'name' | 'joinedAt'> {
     nextTaskAt: 0,
     awayPenalizedSeen: 0,
     lastOutOfBoundsLeak: 0,
+    catchRewardedAt: 0,
   }
 }
 

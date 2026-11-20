@@ -411,6 +411,18 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
     return c
   }, [boundary.circles, activeLeaks, sec])
 
+  // 抓到人：提示獎勵
+  const lastCatches = useRef(me.catches)
+  useEffect(() => {
+    if (me.catches <= lastCatches.current) {
+      lastCatches.current = me.catches
+      return
+    }
+    lastCatches.current = me.catches
+    beep()
+    show('抓到了！+10 · 雷達立即就緒，所有躲藏者馬上出任務', 'ok', 8000)
+  }, [me.catches, show])
+
   // 雷達結果出爐：提示
   const lastRadar = useRef(me.radarDoneAt)
   useEffect(() => {

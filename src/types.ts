@@ -77,6 +77,8 @@ export interface Player {
   /** 房主用：已因離線處罰過的那次心跳時間，避免重複處罰 */
   awayPenalizedSeen: number
   lastOutOfBoundsLeak: number
+  /** 房主用：此人被抓的獎勵已發放（記錄當時的 caughtAt），避免重複發放 */
+  catchRewardedAt?: number
 }
 
 /** locations/{uid}：與 player 分開存放，方便用 rules 限制讀取 */

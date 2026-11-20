@@ -236,6 +236,18 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
     const boundaryNow = boundaryAt(s, room.playStartAt, now)
     const hasPending = new Set(pendingTasks.map((t) => t.playerId))
 
+    // ── 抓人獎勵：抓到人的鬼雷達立即就緒，其餘躲藏者立刻出任務 ──
+    for (const c of players) {
+      if (!c.caughtAt || c.caughtAt < room.playStartAt || (c.catchRewardedAt ?? 0) >= c.caughtAt) continue
+      if (!once(`reward:${c.id}:${c.caughtAt}`)) continue
+      const batch = writeBatch(db)
+      batch.update(playerRef(code, c.id), { catchRewardedAt: c.caughtAt })
+      if (players.some((g) => g.id === c.caughtBy)) batch.update(playerRef(code, c.caughtBy), { radarReadyAt: 0 })
+      for (const h of hiders)
+        if (h.id !== c.id && !hasPending.has(h.id)) batch.update(playerRef(code, h.id), { nextTaskAt: now })
+      await batch.commit()
+    }
+
     for (const p of hiders) {
       const loc = locations[p.id]
 
