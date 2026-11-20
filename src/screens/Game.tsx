@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { updateDoc } from 'firebase/firestore'
-import { MapView, type MapCircle, type MapDot } from '../components/MapView'
+import { MapView, type MapCircle, type MapDot, type MapPolygon, type MapTone } from '../components/MapView'
 import { Avatar, MusicToggle, Ring, fmtClock } from '../components/ui'
 import { useMusicScene, type Scene } from '../lib/music'
 import { IconAlert, IconCheck, IconGhost, IconHider, IconInfo, IconStop } from '../components/icons'
@@ -17,9 +17,10 @@ import {
   IDLE_MOVE_M,
   REVEAL_MS,
   SHRINK_WARN_MS,
-  boundaryRadiusAt,
+  boundaryAt,
   leakRadius,
   nextShrink,
+  type Boundary,
 } from '../lib/rules'
 import { distance } from '../lib/geo'
 import { beep } from '../lib/sound'
@@ -173,26 +174,28 @@ const LEAK_WHY: Record<Leak['reason'], string> = {
   ping: '定期廣播',
 }
 
-/** 邊界（含縮圈）：目前的圈、縮圈前 60 秒預告的新圈、倒數用的資訊 */
+/** 邊界（含縮圈）：目前的邊界、縮圈前 60 秒預告的新邊界、倒數用的資訊 */
 function useBoundary(room: Room, now: number) {
   const s = room.settings
   const sec = Math.floor(now / 1000)
   return useMemo(() => {
     const t = sec * 1000
-    const radius = boundaryRadiusAt(s, room.playStartAt, t)
+    const current = boundaryAt(s, room.playStartAt, t)
     const next = room.status === 'playing' ? nextShrink(s, room.playStartAt, t) : null
     const warn = Boolean(next && next.at - t <= SHRINK_WARN_MS)
     const circles: MapCircle[] = []
-    if (s.boundaryCenter) {
-      circles.push({ id: 'boundary', center: s.boundaryCenter, radius, tone: 'boundary' })
-      if (next && warn)
-        circles.push({ id: 'shrink', center: s.boundaryCenter, radius: next.radius, tone: 'shrink', label: '新邊界' })
+    const polygons: MapPolygon[] = []
+    const draw = (b: Boundary, id: string, tone: MapTone, label?: string) => {
+      if (b.kind === 'circle') circles.push({ id, center: b.center, radius: b.radius, tone, label })
+      else polygons.push({ id, points: b.points, tone, label })
     }
-    return { circles, next, warn }
+    if (current) draw(current, 'boundary', 'boundary')
+    if (next && warn) draw(next.boundary, 'shrink', 'shrink', '新邊界')
+    return { circles, polygons, next, warn }
   }, [s, room.playStartAt, room.status, sec])
 }
 
-function ShrinkStat({ next, now }: { next: { at: number; radius: number } | null; now: number }) {
+function ShrinkStat({ next, now }: { next: { at: number } | null; now: number }) {
   if (!next) return null
   const left = next.at - now
   return (
@@ -289,7 +292,7 @@ function HiderView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
 
   return (
     <>
-      <MapView className="map-full" circles={circles} dots={dots} focus={fix} />
+      <MapView className="map-full" circles={circles} polygons={boundary.polygons} dots={dots} focus={fix} />
       {flash && <div className="flash" aria-hidden />}
       <div className="hud-chips stats">
         <span className="stat is-ok">
@@ -456,7 +459,7 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
   const hiders = data.players.filter((p) => p.role === 'hider')
   return (
     <>
-      <MapView className="map-full" circles={circles} dots={dots} focus={fix} />
+      <MapView className="map-full" circles={circles} polygons={boundary.polygons} dots={dots} focus={fix} />
       <div className="hud-chips stats">
         <span className="stat">
           <span>已抓到</span>

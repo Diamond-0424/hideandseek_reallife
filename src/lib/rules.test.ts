@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { distance, offset } from './geo'
+import { distance, insidePolygon, offset, polygonCentroid } from './geo'
 import {
   DEFAULT_SETTINGS,
   gotoTarget,
   leakCenter,
   leakRadius,
   nextTaskDelayMs,
-  boundaryRadiusAt,
+  boundaryAt,
   nextShrink,
+  outsideBy,
+  type Boundary,
   pickGhosts,
   score,
   seeded,
@@ -50,7 +52,7 @@ describe('tasks', () => {
   it('goto target lies 30–80 m away and inside boundary', () => {
     const rand = seeded(7)
     for (let i = 0; i < 50; i++) {
-      const t = gotoTarget(campus, campus, 300, rand)!
+      const t = gotoTarget(campus, { kind: 'circle', center: campus, radius: 300 }, rand)!
       const d = distance(campus, t)
       expect(d).toBeGreaterThanOrEqual(29)
       expect(d).toBeLessThanOrEqual(81)
@@ -60,22 +62,76 @@ describe('tasks', () => {
 
 describe('shrinking boundary', () => {
   const T0 = 1_700_000_000_000
-  const s = { ...DEFAULT_SETTINGS, boundaryRadius: 400, shrinkEveryMin: 10 }
+  const s = { ...DEFAULT_SETTINGS, boundaryCenter: campus, boundaryRadius: 400, shrinkEveryMin: 10 }
   const min = (m: number) => T0 + m * 60_000
+  const radius = (b: Boundary | null) => (b?.kind === 'circle' ? b.radius : NaN)
 
   it('shrinks 15% of the original radius per step, down to 40%', () => {
-    expect([0, 9.9, 10, 20, 40, 90].map((m) => boundaryRadiusAt(s, T0, min(m)))).toEqual([400, 400, 340, 280, 160, 160])
+    expect([0, 9.9, 10, 20, 40, 90].map((m) => radius(boundaryAt(s, T0, min(m))))).toEqual([400, 400, 340, 280, 160, 160])
   })
 
   it('reports the next shrink until the minimum is reached', () => {
-    expect(nextShrink(s, T0, min(3))).toEqual({ at: min(10), radius: 340 })
-    expect(nextShrink(s, T0, min(35))).toEqual({ at: min(40), radius: 160 })
+    const a = nextShrink(s, T0, min(3))!
+    expect([a.at, radius(a.boundary)]).toEqual([min(10), 340])
+    const b = nextShrink(s, T0, min(35))!
+    expect([b.at, radius(b.boundary)]).toEqual([min(40), 160])
     expect(nextShrink(s, T0, min(45))).toBeNull()
   })
 
   it('does nothing when disabled', () => {
-    expect(boundaryRadiusAt({ ...s, shrinkEveryMin: 0 }, T0, min(60))).toBe(400)
+    expect(radius(boundaryAt({ ...s, shrinkEveryMin: 0 }, T0, min(60)))).toBe(400)
     expect(nextShrink({ ...s, shrinkEveryMin: 0 }, T0, min(1))).toBeNull()
+  })
+})
+
+describe('polygon boundary', () => {
+  // 以 campus 為西南角、東西 400 m × 南北 200 m 的長方形
+  const sw = campus
+  const se = offset(sw, 400, Math.PI / 2)
+  const ne = offset(se, 200, 0)
+  const nw = offset(sw, 200, 0)
+  const rect = [sw, se, ne, nw]
+  const mid = offset(offset(sw, 200, Math.PI / 2), 100, 0)
+  const s = { ...DEFAULT_SETTINGS, boundaryShape: 'polygon' as const, boundaryPolygon: rect, shrinkEveryMin: 10 }
+  const T0 = 1_700_000_000_000
+
+  it('is unset until there are 3 points', () => {
+    expect(boundaryAt({ ...s, boundaryPolygon: rect.slice(0, 2) }, 0, 0)).toBeNull()
+    expect(boundaryAt(s, 0, 0)?.kind).toBe('polygon')
+  })
+
+  it('measures signed distance to the edge', () => {
+    const b = boundaryAt(s, 0, 0)!
+    expect(outsideBy(mid, b)).toBeCloseTo(-100, 0)
+    expect(outsideBy(offset(sw, 30, Math.PI), b)).toBeCloseTo(30, 0)
+    expect(outsideBy(offset(nw, 50, 0), b)).toBeCloseTo(50, 0)
+  })
+
+  it('shrinks proportionally around the centroid', () => {
+    expect(distance(polygonCentroid(rect), mid)).toBeLessThan(1)
+    const b = boundaryAt(s, T0, T0 + 10 * 60_000)!
+    if (b.kind !== 'polygon') throw new Error('expected polygon')
+    // 縮 15%：重心到角落的距離剩 85%
+    expect(distance(b.points[0], mid) / distance(sw, mid)).toBeCloseTo(0.85, 3)
+    expect(insidePolygon(offset(sw, 5, Math.PI / 4), b.points)).toBe(false)
+    expect(insidePolygon(mid, b.points)).toBe(true)
+  })
+
+  it('handles concave shapes (L shape)', () => {
+    const o = campus
+    const at = (e: number, n: number) => offset(offset(o, e, Math.PI / 2), n, 0)
+    const L = [at(0, 0), at(200, 0), at(200, 100), at(100, 100), at(100, 200), at(0, 200)]
+    expect(insidePolygon(at(50, 150), L)).toBe(true)
+    expect(insidePolygon(at(150, 150), L)).toBe(false)
+  })
+
+  it('keeps goto targets inside the polygon', () => {
+    const rand = seeded(3)
+    const b = boundaryAt(s, 0, 0)!
+    for (let i = 0; i < 50; i++) {
+      const t = gotoTarget(mid, b, rand)
+      if (t) expect(outsideBy(t, b)).toBeLessThanOrEqual(-10)
+    }
   })
 })
 

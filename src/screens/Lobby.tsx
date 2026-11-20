@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { MapView, type MapCircle, type MapDot } from '../components/MapView'
+import { MapView, type MapCircle, type MapDot, type MapPolygon } from '../components/MapView'
 import { Avatar, MusicToggle, Stepper } from '../components/ui'
 import { useMusicScene } from '../lib/music'
 import { IconAlert, IconDice, IconLocate, IconPin } from '../components/icons'
 import type { GeoFix } from '../hooks/device'
 import { drawAndStart, leaveRoom, updateSettings } from '../lib/room'
+import { boundaryAt } from '../lib/rules'
 import type { Player, Room, Settings } from '../types'
 
 interface Props {
@@ -57,13 +58,38 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
   const save = (patch: Partial<Settings>) =>
     updateSettings(room.code, { ...s, ...patch }).catch((e) => setError(e.message))
 
+  const isPolygon = s.boundaryShape === 'polygon'
+  const poly = s.boundaryPolygon
   const circles = useMemo<MapCircle[]>(
-    () => (s.boundaryCenter ? [{ id: 'boundary', center: s.boundaryCenter, radius: s.boundaryRadius, tone: 'boundary' }] : []),
-    [s.boundaryCenter, s.boundaryRadius],
+    () =>
+      !isPolygon && s.boundaryCenter
+        ? [{ id: 'boundary', center: s.boundaryCenter, radius: s.boundaryRadius, tone: 'boundary' }]
+        : [],
+    [isPolygon, s.boundaryCenter, s.boundaryRadius],
+  )
+  const polygons = useMemo<MapPolygon[]>(
+    () => (isPolygon && poly.length ? [{ id: 'boundary', points: poly, tone: 'boundary', vertices: isHost }] : []),
+    [isPolygon, poly, isHost],
   )
   const dots = useMemo<MapDot[]>(() => (fix ? [{ id: 'me', at: fix, kind: 'self' }] : []), [fix])
 
-  const canStart = players.length >= 2 && Boolean(s.boundaryCenter)
+  const boundarySet = boundaryAt(s, 0, 0) !== null
+  const addVertex = (p: { lat: number; lng: number }) => save({ boundaryPolygon: [...poly, { lat: p.lat, lng: p.lng }] })
+  const setPoint = (p: { lat: number; lng: number }) =>
+    isPolygon ? addVertex(p) : save({ boundaryCenter: { lat: p.lat, lng: p.lng } })
+  const hint = isPolygon
+    ? boundarySet
+      ? `${poly.length} 個角，以重心等比例縮圈，出界會曝光`
+      : isHost
+        ? `依序點地圖或走到各角落按「加入我的位置」，還差 ${3 - poly.length} 個點`
+        : '等待房主設定邊界'
+    : s.boundaryCenter
+      ? `半徑 ${s.boundaryRadius} 公尺，出界會曝光`
+      : isHost
+        ? '點地圖設定邊界中心'
+        : '等待房主設定邊界'
+
+  const canStart = players.length >= 2 && boundarySet
   const maxGhosts = Math.max(1, players.length - 1)
 
   const row = (f: Field) => (
@@ -148,7 +174,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
 
       <section className="card rise" style={{ animationDelay: '120ms' }}>
         <h2>規則設定{!isHost && <span> · 由房主設定</span>}</h2>
-        <div className="settings">{MAIN.map(row)}</div>
+        <div className="settings">{MAIN.filter((f) => !(isPolygon && f.key === 'boundaryRadius')).map(row)}</div>
         <details className="advanced">
           <summary>進階</summary>
           <div className="settings">{ADVANCED.map(row)}</div>
@@ -163,26 +189,53 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
         <div className="map-card-head">
           <h2>遊戲邊界</h2>
           {isHost && (
-            <button
-              className="btn subtle sm"
-              disabled={!fix}
-              onClick={() => fix && save({ boundaryCenter: { lat: fix.lat, lng: fix.lng } })}
-            >
-              <IconLocate size={16} /> 用我的位置
-            </button>
+            <span className="shape-pick">
+              <button
+                className={`btn sm ${isPolygon ? 'subtle' : ''}`}
+                aria-pressed={!isPolygon}
+                onClick={() => save({ boundaryShape: 'circle' })}
+              >
+                圓形
+              </button>
+              <button
+                className={`btn sm ${isPolygon ? '' : 'subtle'}`}
+                aria-pressed={isPolygon}
+                onClick={() => save({ boundaryShape: 'polygon' })}
+              >
+                多邊形
+              </button>
+            </span>
           )}
         </div>
         <MapView
           className="map-lobby"
           circles={circles}
+          polygons={polygons}
           dots={dots}
-          focus={s.boundaryCenter ?? fix}
-          onClick={isHost ? (p) => save({ boundaryCenter: p }) : undefined}
+          focus={(isPolygon ? poly[0] : s.boundaryCenter) ?? fix}
+          onClick={isHost ? setPoint : undefined}
         />
-        <p className={`sm map-hint ${s.boundaryCenter ? 'is-set' : 'muted'}`}>
+        <p className={`sm map-hint ${boundarySet ? 'is-set' : 'muted'}`}>
           <IconPin size={16} />
-          {s.boundaryCenter ? `半徑 ${s.boundaryRadius} 公尺，出界會曝光` : isHost ? '點地圖設定邊界中心' : '等待房主設定邊界'}
+          {hint}
         </p>
+        {isHost && (
+          <div className="map-tools">
+            <button className="btn subtle sm" disabled={!fix} onClick={() => fix && setPoint(fix)}>
+              <IconLocate size={16} /> {isPolygon ? '加入我的位置' : '用我的位置'}
+            </button>
+            {isPolygon && (
+              <>
+                <button className="btn subtle sm" disabled={!poly.length} onClick={() => save({ boundaryPolygon: poly.slice(0, -1) })}>
+                  復原
+                </button>
+                <button className="btn subtle sm" disabled={!poly.length} onClick={() => save({ boundaryPolygon: [] })}>
+                  清除
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </section>
 
       <div className="dock">
@@ -195,7 +248,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
           <button className="btn primary lg block" disabled={!canStart || busy} onClick={start}>
             {players.length < 2 ? (
               '等待更多玩家加入…'
-            ) : !s.boundaryCenter ? (
+            ) : !boundarySet ? (
               '先設定遊戲邊界'
             ) : busy ? (
               '抽鬼中…'

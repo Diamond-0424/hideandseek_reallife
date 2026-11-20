@@ -11,8 +11,12 @@ export interface Settings {
   taskJitterSec: number
   taskLimitSec: number
   awayToleranceSec: number
+  /** 邊界形狀：圓形（中心＋半徑）或房主點出的多邊形 */
+  boundaryShape: 'circle' | 'polygon'
   boundaryCenter: LatLng | null
   boundaryRadius: number
+  /** 多邊形頂點（依點選順序），至少 3 點才算設定完成 */
+  boundaryPolygon: LatLng[]
   /** 鬼的雷達冷卻（分），0 = 關閉 */
   radarCooldownMin: number
   /** 每隔幾分鐘縮一次圈，0 = 不縮 */

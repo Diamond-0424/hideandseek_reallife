@@ -22,6 +22,15 @@ export interface MapCircle {
   label?: string
 }
 
+export interface MapPolygon {
+  id: string
+  points: LatLng[]
+  tone: MapTone
+  label?: string
+  /** 編輯中：畫出頂點；不足 3 點時以折線顯示 */
+  vertices?: boolean
+}
+
 export type DotKind = 'self' | 'ghost' | 'hider'
 
 export interface MapDot {
@@ -33,6 +42,7 @@ export interface MapDot {
 
 interface Props {
   circles?: MapCircle[]
+  polygons?: MapPolygon[]
   dots?: MapDot[]
   /** 第一次有座標時置中到這裡；「回到我的位置」按鈕也用它 */
   focus?: LatLng | null
@@ -79,15 +89,17 @@ function exactIcon(label?: string) {
 }
 
 type CircleEntry = { key: string; layer: L.Circle | L.Marker; tip?: L.Tooltip }
+type PolyEntry = { key: string; group: L.LayerGroup }
 type DotEntry = { key: string; marker: L.Marker }
 
 /**
  * 直接用 Leaflet。圖層依 id 增量更新（不整批重畫），標記的動畫才不會每秒重來。
  */
-export function MapView({ circles = [], dots = [], focus, onClick, className = '' }: Props) {
+export function MapView({ circles = [], polygons = [], dots = [], focus, onClick, className = '' }: Props) {
   const el = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
   const circleLayers = useRef(new Map<string, CircleEntry>())
+  const polyLayers = useRef(new Map<string, PolyEntry>())
   const dotLayers = useRef(new Map<string, DotEntry>())
   const focused = useRef(false)
   const clickRef = useRef(onClick)
@@ -113,11 +125,13 @@ export function MapView({ circles = [], dots = [], focus, onClick, className = '
     m.on('dragstart', () => setOffCenter(true))
     map.current = m
     const circlesNow = circleLayers.current
+    const polysNow = polyLayers.current
     const dotsNow = dotLayers.current
     return () => {
       m.remove()
       map.current = null
       circlesNow.clear()
+      polysNow.clear()
       dotsNow.clear()
     }
   }, [])
@@ -192,6 +206,42 @@ export function MapView({ circles = [], dots = [], focus, onClick, className = '
         circleLayers.current.delete(id)
       }
   }, [circles])
+
+  // ── 多邊形：形狀沒變就不重畫（遊戲畫面每秒都會重新產生陣列）──
+  useEffect(() => {
+    const m = map.current
+    if (!m) return
+    const seen = new Set<string>()
+    for (const p of polygons) {
+      seen.add(p.id)
+      const key = JSON.stringify([p.tone, p.label ?? '', p.vertices ?? false, p.points])
+      const entry = polyLayers.current.get(p.id)
+      if (entry?.key === key) continue
+      entry?.group.remove()
+      const latlngs = p.points.map((a) => [a.lat, a.lng] as L.LatLngTuple)
+      const group = L.layerGroup()
+      const style = { interactive: false, ...TONE[p.tone] }
+      const shape =
+        latlngs.length >= 3 ? L.polygon(latlngs, style) : latlngs.length === 2 ? L.polyline(latlngs, style) : null
+      if (shape) {
+        if (p.label)
+          shape.bindTooltip(esc(p.label), { permanent: true, direction: 'center', className: `map-chip tone-${p.tone}` })
+        group.addLayer(shape)
+      }
+      if (p.vertices)
+        for (const ll of latlngs)
+          group.addLayer(
+            L.circleMarker(ll, { radius: 5, interactive: false, color: '#0b0b0c', weight: 2, fillColor: '#f2ede4', fillOpacity: 1 }),
+          )
+      group.addTo(m)
+      polyLayers.current.set(p.id, { key, group })
+    }
+    for (const [id, entry] of polyLayers.current)
+      if (!seen.has(id)) {
+        entry.group.remove()
+        polyLayers.current.delete(id)
+      }
+  }, [polygons])
 
   // ── 人物標記 ──
   useEffect(() => {

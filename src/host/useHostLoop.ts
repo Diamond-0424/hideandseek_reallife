@@ -18,7 +18,8 @@ import {
   leakRadius,
   nextTaskDelayMs,
   pickTaskType,
-  boundaryRadiusAt,
+  boundaryAt,
+  outsideBy,
   radarRound,
 } from '../lib/rules'
 import type { LatLng, Leak, LeakReason, Player, PlayerLocation, Room, Task } from '../types'
@@ -232,7 +233,7 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
       })
     }
 
-    const radiusNow = boundaryRadiusAt(s, room.playStartAt, now)
+    const boundaryNow = boundaryAt(s, room.playStartAt, now)
     const hasPending = new Set(pendingTasks.map((t) => t.playerId))
 
     for (const p of hiders) {
@@ -244,7 +245,7 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
         let point = null
         if (type === 'goto' && loc) {
           // 目標點要落在任務結束時（可能已縮圈）的邊界內
-          point = gotoTarget(loc, s.boundaryCenter, boundaryRadiusAt(s, room.playStartAt, now + s.taskLimitSec * 1000))
+          point = gotoTarget(loc, boundaryAt(s, room.playStartAt, now + s.taskLimitSec * 1000))
           if (!point) type = 'move'
         }
         if (type === 'move' && loc) point = { lat: loc.lat, lng: loc.lng }
@@ -279,10 +280,10 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
 
       // ── 出界 ──
       if (
-        s.boundaryCenter &&
+        boundaryNow &&
         loc &&
         now - loc.seenAt < 20_000 &&
-        distance(loc, s.boundaryCenter) - Math.min(loc.acc, 30) > radiusNow &&
+        outsideBy(loc, boundaryNow) > Math.min(loc.acc, 30) &&
         now - p.lastOutOfBoundsLeak > BOUNDARY_LEAK_COOLDOWN_MS &&
         once(`bound:${p.id}`, BOUNDARY_LEAK_COOLDOWN_MS)
       ) {

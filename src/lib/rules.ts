@@ -1,5 +1,5 @@
 import type { LatLng, Player, Room, Settings, TaskType } from '../types'
-import { distance, insideCircle, offset, randomPointWithin } from './geo'
+import { distance, distanceToPolygonEdge, insidePolygon, offset, randomPointWithin, scalePolygon } from './geo'
 
 export const DEFAULT_SETTINGS: Settings = {
   ghostCount: 1,
@@ -9,8 +9,10 @@ export const DEFAULT_SETTINGS: Settings = {
   taskJitterSec: 60,
   taskLimitSec: 120,
   awayToleranceSec: 30,
+  boundaryShape: 'circle',
   boundaryCenter: null,
   boundaryRadius: 300,
+  boundaryPolygon: [],
   radarCooldownMin: 5,
   shrinkEveryMin: 10,
   pingEveryMin: 10,
@@ -92,34 +94,52 @@ export function pickTaskType(hasLocation: boolean, realTaskPct = 50, rand = Math
   return MINIGAMES[Math.floor(rand() * MINIGAMES.length)]
 }
 
-/** 在 30–80 公尺外找一個仍在邊界內的目標點；找不到回傳 null */
-export function gotoTarget(
-  from: LatLng,
-  boundaryCenter: LatLng | null,
-  boundaryRadius: number,
-  rand = Math.random,
-): LatLng | null {
-  for (let i = 0; i < 30; i++) {
-    const p = offset(from, 30 + rand() * 50, rand() * 2 * Math.PI)
-    if (!boundaryCenter || insideCircle(p, boundaryCenter, boundaryRadius * 0.95)) return p
-  }
-  return null
-}
+export type Boundary =
+  | { kind: 'circle'; center: LatLng; radius: number }
+  | { kind: 'polygon'; points: LatLng[] }
 
-/** 縮圈後的邊界半徑（由開打時間推算，所有人算出來一樣） */
-export function boundaryRadiusAt(s: Settings, playStartAt: number, now: number): number {
-  if (!s.shrinkEveryMin || !playStartAt || now < playStartAt) return s.boundaryRadius
+/** 縮圈後剩原本大小的比例（由開打時間推算，所有人算出來一樣） */
+export function shrinkScaleAt(s: Settings, playStartAt: number, now: number): number {
+  if (!s.shrinkEveryMin || !playStartAt || now < playStartAt) return 1
   const steps = Math.floor((now - playStartAt) / (s.shrinkEveryMin * 60_000))
-  return Math.round(s.boundaryRadius * Math.max(SHRINK_MIN, 1 - steps * SHRINK_STEP))
+  return Math.max(SHRINK_MIN, 1 - steps * SHRINK_STEP)
 }
 
-/** 下一次縮圈的時間與縮完的半徑；已縮到最小或不縮時回傳 null */
-export function nextShrink(s: Settings, playStartAt: number, now: number): { at: number; radius: number } | null {
+/** 依比例縮放的邊界；多邊形以重心為中心等比例縮小。尚未設定完成時回傳 null */
+export function boundaryAt(s: Settings, playStartAt: number, now: number): Boundary | null {
+  const k = shrinkScaleAt(s, playStartAt, now)
+  if (s.boundaryShape === 'polygon') {
+    const pts = s.boundaryPolygon ?? []
+    return pts.length >= 3 ? { kind: 'polygon', points: scalePolygon(pts, k) } : null
+  }
+  return s.boundaryCenter ? { kind: 'circle', center: s.boundaryCenter, radius: Math.round(s.boundaryRadius * k) } : null
+}
+
+/** 在邊界外多少公尺；≤ 0 表示在邊界內（數值為到邊緣的距離取負） */
+export function outsideBy(p: LatLng, b: Boundary): number {
+  if (b.kind === 'circle') return distance(p, b.center) - b.radius
+  const d = distanceToPolygonEdge(p, b.points)
+  return insidePolygon(p, b.points) ? -d : d
+}
+
+/** 下一次縮圈的時間與縮完的邊界；已縮到最小或不縮時回傳 null */
+export function nextShrink(s: Settings, playStartAt: number, now: number): { at: number; boundary: Boundary } | null {
   if (!s.shrinkEveryMin || !playStartAt) return null
   const every = s.shrinkEveryMin * 60_000
   const at = playStartAt + (Math.floor(Math.max(0, now - playStartAt) / every) + 1) * every
-  const radius = boundaryRadiusAt(s, playStartAt, at)
-  return radius < boundaryRadiusAt(s, playStartAt, now) ? { at, radius } : null
+  if (shrinkScaleAt(s, playStartAt, at) >= shrinkScaleAt(s, playStartAt, now)) return null
+  const boundary = boundaryAt(s, playStartAt, at)
+  return boundary ? { at, boundary } : null
+}
+
+/** 在 30–80 公尺外找一個仍在邊界內（離邊緣留點餘裕）的目標點；找不到回傳 null */
+export function gotoTarget(from: LatLng, boundary: Boundary | null, rand = Math.random): LatLng | null {
+  const margin = boundary?.kind === 'circle' ? boundary.radius * 0.05 : 10
+  for (let i = 0; i < 30; i++) {
+    const p = offset(from, 30 + rand() * 50, rand() * 2 * Math.PI)
+    if (!boundary || outsideBy(p, boundary) <= -margin) return p
+  }
+  return null
 }
 
 /** 雷達顯示用：往上取整到 10 公尺 */
