@@ -41,5 +41,5 @@ export function RoomScreen({ code, uid, onExit }: Props) {
     return <Lobby room={room} players={players} me={me} isHost={isHost} fix={geo.fix} onExit={onExit} />
   if (room.status === 'ended')
     return <Results room={room} players={players} me={me} isHost={isHost} onExit={onExit} />
-  return <Game data={data} me={me} isHost={isHost} geo={geo} wakeSupported={wakeSupported} />
+  return <Game data={data} me={me} isHost={isHost} geo={geo} wakeSupported={wakeSupported} onExit={onExit} />
 }

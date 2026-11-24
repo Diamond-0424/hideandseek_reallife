@@ -8,7 +8,7 @@ import { useAwayReport, useNow, type GeoFix } from '../hooks/device'
 import type { RoomData } from '../hooks/useRoomData'
 import { hostStale } from '../host/useHostLoop'
 import { nowMs } from '../lib/clock'
-import { completeTask, reportCaught, requestRadar, roomRef } from '../lib/room'
+import { completeTask, leaveRoom, reportCaught, requestRadar, roomRef } from '../lib/room'
 import {
   BONUS_POINTS,
   BONUS_WINDOW_MS,
@@ -33,9 +33,10 @@ interface Props {
   isHost: boolean
   geo: { fix: GeoFix | null; error: string | null }
   wakeSupported: boolean
+  onExit: () => void
 }
 
-export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
+export function Game({ data, me, isHost, geo, wakeSupported, onExit }: Props) {
   const room = data.room!
   const now = useNow(500)
   const paused = !isHost && hostStale(room, now)
@@ -69,6 +70,16 @@ export function Game({ data, me, isHost, geo, wakeSupported }: Props) {
             <span className="spinner" />
             <p className="title">房主離線，遊戲暫停中</p>
             <p className="muted">房主回來後計時會自動順延</p>
+            <button
+              className="btn subtle block"
+              onClick={async () => {
+                if (!confirm('確定要離開房間嗎？離開後無法再回到這一局。')) return
+                await leaveRoom(me.id, room.code)
+                onExit()
+              }}
+            >
+              離開房間
+            </button>
           </div>
         </div>
       )}
