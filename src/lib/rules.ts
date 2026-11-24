@@ -1,4 +1,4 @@
-import type { LatLng, Player, Room, Settings, TaskType } from '../types'
+import type { LatLng, Leak, Player, Room, Settings, TaskType } from '../types'
 import { distance, distanceToPolygonEdge, insidePolygon, offset, randomPointWithin, scalePolygon } from './geo'
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -18,6 +18,9 @@ export const DEFAULT_SETTINGS: Settings = {
   pingEveryMin: 10,
   idleLeakMin: 3,
   realTaskPct: 50,
+  trackSec: 60,
+  pingRadiusM: 100,
+  pingShowSec: 30,
 }
 
 /** 舊房間的設定可能缺新欄位，一律補預設值 */
@@ -27,8 +30,6 @@ export function withDefaults(s: Partial<Settings> | undefined): Settings {
 
 export const REVEAL_MS = 5000
 export const LEAK_SHOW_MS = 60_000
-/** 任務失敗：直接公布精確位置並即時追蹤這麼久 */
-export const TRACK_MS = 20_000
 /** 被追蹤期間的心跳間隔，讓鬼看到的位置接近即時 */
 export const TRACK_HEARTBEAT_MS = 2000
 export const GHOST_COOLDOWN_MS = 60_000
@@ -45,9 +46,26 @@ export const SHRINK_MIN = 0.4
 /** 縮圈前多久開始預告新邊界 */
 export const SHRINK_WARN_MS = 60_000
 
-/** 定期廣播的範圍與顯示時間 */
-export const PING_RADIUS_M = 100
-export const PING_SHOW_MS = 30_000
+/** 同一人前後兩次洩漏相隔超過這麼久，就不畫移動方向（太舊沒參考價值） */
+export const TRAIL_WINDOW_MS = 5 * 60_000
+/** 位移小於這個距離視為 GPS 飄移，不畫移動方向 */
+export const TRAIL_MIN_M = 10
+
+/**
+ * 前後兩次洩漏之間畫不畫移動箭頭。
+ * 圓心各自隨機偏移最多 0.8 倍半徑，位移要大於兩邊偏移的總和，箭頭方向才不會被偏移蓋過。
+ */
+export function showsMovement(prev: Leak, next: Leak): boolean {
+  if (next.createdAt - prev.createdAt > TRAIL_WINDOW_MS) return false
+  const d = distance(prev.center, next.center)
+  return d >= TRAIL_MIN_M && d > 0.8 * (prev.radius + next.radius)
+}
+
+/** 「35 秒前」「3 分鐘前」 */
+export function fmtAgo(ms: number): string {
+  const sec = Math.max(0, Math.round(ms / 1000))
+  return sec < 60 ? `${sec} 秒前` : `${Math.floor(sec / 60)} 分鐘前`
+}
 
 /** 離最初位置不到這個距離都算「沒移動」（吸收 GPS 飄移） */
 export const IDLE_MOVE_M = 25

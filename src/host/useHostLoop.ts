@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { doc, increment, runTransaction, updateDoc, writeBatch } from 'firebase/firestore'
+import { arrayUnion, doc, increment, runTransaction, updateDoc, writeBatch } from 'firebase/firestore'
 import { db } from '../firebase'
 import { nowMs } from '../lib/clock'
 import { distance } from '../lib/geo'
@@ -9,10 +9,7 @@ import {
   HOST_STALE_MS,
   IDLE_MOVE_M,
   LEAK_SHOW_MS,
-  PING_RADIUS_M,
-  PING_SHOW_MS,
   TASK_GRACE_MS,
-  TRACK_MS,
   gotoTarget,
   leakCenter,
   leakRadius,
@@ -99,8 +96,9 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
         radius,
         reason,
         createdAt: now,
-        expiresAt: now + (track ? TRACK_MS : LEAK_SHOW_MS),
-        ...(track ? { live: true, seenAt: loc.seenAt } : {}),
+        expiresAt: now + (track ? room.settings.trackSec * 1000 : LEAK_SHOW_MS),
+        seenAt: loc.seenAt,
+        ...(track ? { live: true, trail: [{ lat: loc.lat, lng: loc.lng }] } : {}),
       }
       batch.set(ref, l)
     }
@@ -171,7 +169,8 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
       if (!l.live || l.expiresAt <= now) continue
       const loc = locations[l.playerId]
       if (!loc || loc.seenAt <= (l.seenAt ?? 0) || !once(`track:${l.id}:${loc.seenAt}`)) continue
-      await updateDoc(doc(leaksCol(code), l.id), { center: { lat: loc.lat, lng: loc.lng }, seenAt: loc.seenAt })
+      const center = { lat: loc.lat, lng: loc.lng }
+      await updateDoc(doc(leaksCol(code), l.id), { center, seenAt: loc.seenAt, trail: arrayUnion(center) })
     }
 
     // ── 任務逾時／取消 ──
@@ -206,11 +205,12 @@ export function useHostLoop(data: HostData | null, enabled: boolean) {
           playerId: p.id,
           playerName: p.name,
           level: 0,
-          center: leakCenter({ lat: loc.lat, lng: loc.lng }, PING_RADIUS_M),
-          radius: PING_RADIUS_M,
+          center: leakCenter({ lat: loc.lat, lng: loc.lng }, s.pingRadiusM),
+          radius: s.pingRadiusM,
           reason: 'ping',
           createdAt: now,
-          expiresAt: now + PING_SHOW_MS,
+          expiresAt: now + s.pingShowSec * 1000,
+          seenAt: loc.seenAt,
         } satisfies Leak)
       }
       await batch.commit()

@@ -354,6 +354,15 @@ button.stat.is-warn { color: var(--ink); }
 }
 .mk-exact::after { animation-delay: 0.7s; }
 .mk-exact span { top: 17px; background: var(--ghost); }
+/* 移動方向箭頭：尖端朝上，再依方位角旋轉；往前推一點，避免被洩漏標記蓋住 */
+.mk-arrow {
+  position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; transform-origin: 50% 50%;
+}
+.mk-arrow::before {
+  content: ''; position: absolute; left: 1px; top: -14px;
+  border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 14px solid var(--ghost);
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.6));
+}
 .map-chip {
   background: var(--ghost) !important; color: #fff !important;
   border: 0 !important; border-radius: 5px !important;
@@ -399,6 +408,13 @@ button.stat.is-warn { color: var(--ink); }
 .hud-top .icon-btn { align-self: center; margin: 0 0.6rem 0 0.4rem; }
 .hud-top > .ring { margin-right: 0.7rem; }
 .hud-top > .ring + .icon-btn { margin-left: -0.2rem; }
+/* 房主的結束遊戲按鈕：圖示加文字，戶外也一眼看得到 */
+.end-btn {
+  align-self: center; display: flex; flex-direction: column; align-items: center; gap: 0.1rem;
+  margin-right: 0.6rem; padding: 0.35rem 0.55rem; border-radius: var(--r);
+  background: var(--surface-2); color: var(--ghost); font-size: 0.72rem; font-weight: 800;
+}
+.end-btn:active { transform: scale(0.95); }
 
 .hud-chips {
   position: absolute; z-index: 550; left: 10px; right: 10px; top: calc(92px + var(--safe-t));
@@ -602,4 +618,4 @@ button.stat.is-warn { color: var(--ink); }
 .head-actions { display: flex; align-items: center; gap: 0.4rem; }
 .hud-top .music-toggle { align-self: center; margin-right: 0.6rem; }
 .hud-top > .ring + .music-toggle { margin-left: -0.2rem; }
-.hud-top .music-toggle + .icon-btn { margin-left: 0; }
+.hud-top .music-toggle + .icon-btn, .hud-top .music-toggle + .end-btn { margin-left: 0; }

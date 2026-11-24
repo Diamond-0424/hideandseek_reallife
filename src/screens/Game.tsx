@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { updateDoc } from 'firebase/firestore'
-import { MapView, type MapCircle, type MapDot, type MapPolygon, type MapTone } from '../components/MapView'
+import { MapView, type MapCircle, type MapDot, type MapLine, type MapPolygon, type MapTone } from '../components/MapView'
 import { Avatar, MusicToggle, Ring, fmtClock } from '../components/ui'
 import { useMusicScene, type Scene } from '../lib/music'
 import { IconAlert, IconCheck, IconGhost, IconHider, IconInfo, IconStop } from '../components/icons'
@@ -18,8 +18,10 @@ import {
   REVEAL_MS,
   SHRINK_WARN_MS,
   boundaryAt,
+  fmtAgo,
   leakRadius,
   nextShrink,
+  showsMovement,
   type Boundary,
 } from '../lib/rules'
 import { distance } from '../lib/geo'
@@ -146,14 +148,14 @@ function TopBar({ room, me, now, isHost }: { room: Room; me: Player; now: number
       <MusicToggle />
       {isHost && (
         <button
-          className="icon-btn"
-          aria-label="提前結束"
+          className="end-btn"
           onClick={() =>
-            confirm('確定要提前結束這局？') &&
+            confirm('確定要結束這局？所有人會直接進入結算畫面。') &&
             updateDoc(roomRef(room.code), { status: 'ended', endedAt: nowMs() })
           }
         >
-          <IconStop size={18} />
+          <IconStop size={16} />
+          結束
         </button>
       )}
     </header>
@@ -417,10 +419,26 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
         center: l.center,
         radius: l.radius,
         tone: l.reason === 'ping' ? 'ping' : 'leak',
-        label: `${l.playerName}${l.live ? ' · 追蹤中' : ''} · ${Math.max(0, Math.ceil(l.expiresAt / 1000 - sec))}s`,
+        label: `${l.playerName} · ${l.live ? '追蹤中' : fmtAgo(sec * 1000 - (l.seenAt ?? l.createdAt))} · 剩 ${Math.max(0, Math.ceil(l.expiresAt / 1000 - sec))}s`,
       })
     return c
   }, [boundary.circles, activeLeaks, sec])
+
+  const lines = useMemo<MapLine[]>(() => {
+    const out: MapLine[] = []
+    for (const l of activeLeaks) {
+      // 同一人前一次洩漏 → 這次：大致的移動方向
+      const prev = data.leaks
+        .filter((o) => o.playerId === l.playerId && o.createdAt < l.createdAt)
+        .at(-1)
+      const start = prev && showsMovement(prev, l) ? [prev.center] : []
+      // 即時追蹤：房主記下的軌跡，最後一點一定是目前位置
+      const path = [...start, ...(l.live && l.trail?.length ? l.trail : []), l.center]
+      const points = path.filter((p, i) => i === 0 || p.lat !== path[i - 1].lat || p.lng !== path[i - 1].lng)
+      if (points.length >= 2) out.push({ id: `trail:${l.id}`, points, tone: 'trail' })
+    }
+    return out
+  }, [activeLeaks, data.leaks])
 
   // 抓到人：提示獎勵
   const lastCatches = useRef(me.catches)
@@ -482,7 +500,7 @@ function GhostView({ data, me, now, fix }: { data: RoomData; me: Player; now: nu
   const hiders = data.players.filter((p) => p.role === 'hider')
   return (
     <>
-      <MapView className="map-full" circles={circles} polygons={boundary.polygons} dots={dots} focus={fix} />
+      <MapView className="map-full" circles={circles} polygons={boundary.polygons} lines={lines} dots={dots} focus={fix} />
       <div className="hud-chips stats">
         <span className="stat">
           <span>已抓到</span>

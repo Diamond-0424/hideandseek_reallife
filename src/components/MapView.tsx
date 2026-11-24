@@ -11,7 +11,7 @@ setWorkerUrl(maplibreWorkerUrl)
 import type { LatLng } from '../types'
 import { IconLayers, IconLocate } from './icons'
 
-export type MapTone = 'boundary' | 'shrink' | 'leak' | 'ping' | 'target' | 'zone'
+export type MapTone = 'boundary' | 'shrink' | 'leak' | 'ping' | 'target' | 'zone' | 'trail'
 
 export interface MapCircle {
   id: string
@@ -31,6 +31,13 @@ export interface MapPolygon {
   vertices?: boolean
 }
 
+/** 移動軌跡：依序連起各點，終點畫箭頭 */
+export interface MapLine {
+  id: string
+  points: LatLng[]
+  tone: MapTone
+}
+
 export type DotKind = 'self' | 'ghost' | 'hider'
 
 export interface MapDot {
@@ -43,6 +50,7 @@ export interface MapDot {
 interface Props {
   circles?: MapCircle[]
   polygons?: MapPolygon[]
+  lines?: MapLine[]
   dots?: MapDot[]
   /** 第一次有座標時置中到這裡；「回到我的位置」按鈕也用它 */
   focus?: LatLng | null
@@ -68,6 +76,7 @@ const TONE: Record<MapTone, L.PathOptions> = {
   leak: { color: '#ff3b2f', weight: 2.5, opacity: 1, fillColor: '#ff3b2f', fillOpacity: 0.22 },
   target: { color: '#0b0b0c', weight: 2.5, opacity: 1, fillColor: '#ffb800', fillOpacity: 0.75 },
   zone: { color: '#ffc400', weight: 2.5, opacity: 1, fillOpacity: 0, dashArray: '6 6' },
+  trail: { color: '#ff3b2f', weight: 3, opacity: 0.95, fill: false, dashArray: '2 8', lineCap: 'round' },
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
@@ -88,6 +97,21 @@ function exactIcon(label?: string) {
   })
 }
 
+/** 從 a 指向 b 的方位角（度，北 = 0、順時針），距離短，用平面近似即可 */
+function bearing(a: LatLng, b: LatLng): number {
+  const dx = (b.lng - a.lng) * Math.cos((a.lat * Math.PI) / 180)
+  const dy = b.lat - a.lat
+  return (Math.atan2(dx, dy) * 180) / Math.PI
+}
+
+function arrowIcon(deg: number) {
+  return L.divIcon({
+    className: 'mk-wrap',
+    iconSize: [0, 0],
+    html: `<div class="mk-arrow" style="transform: rotate(${deg.toFixed(1)}deg)"></div>`,
+  })
+}
+
 type CircleEntry = { key: string; layer: L.Circle | L.Marker; tip?: L.Tooltip }
 type PolyEntry = { key: string; group: L.LayerGroup }
 type DotEntry = { key: string; marker: L.Marker }
@@ -95,11 +119,12 @@ type DotEntry = { key: string; marker: L.Marker }
 /**
  * 直接用 Leaflet。圖層依 id 增量更新（不整批重畫），標記的動畫才不會每秒重來。
  */
-export function MapView({ circles = [], polygons = [], dots = [], focus, onClick, className = '' }: Props) {
+export function MapView({ circles = [], polygons = [], lines = [], dots = [], focus, onClick, className = '' }: Props) {
   const el = useRef<HTMLDivElement>(null)
   const map = useRef<L.Map | null>(null)
   const circleLayers = useRef(new Map<string, CircleEntry>())
   const polyLayers = useRef(new Map<string, PolyEntry>())
+  const lineLayers = useRef(new Map<string, PolyEntry>())
   const dotLayers = useRef(new Map<string, DotEntry>())
   const focused = useRef(false)
   const clickRef = useRef(onClick)
@@ -126,12 +151,14 @@ export function MapView({ circles = [], polygons = [], dots = [], focus, onClick
     map.current = m
     const circlesNow = circleLayers.current
     const polysNow = polyLayers.current
+    const linesNow = lineLayers.current
     const dotsNow = dotLayers.current
     return () => {
       m.remove()
       map.current = null
       circlesNow.clear()
       polysNow.clear()
+      linesNow.clear()
       dotsNow.clear()
     }
   }, [])
@@ -242,6 +269,34 @@ export function MapView({ circles = [], polygons = [], dots = [], focus, onClick
         polyLayers.current.delete(id)
       }
   }, [polygons])
+
+  // ── 移動軌跡 ──
+  useEffect(() => {
+    const m = map.current
+    if (!m) return
+    const seen = new Set<string>()
+    for (const l of lines) {
+      if (l.points.length < 2) continue
+      seen.add(l.id)
+      const key = JSON.stringify([l.tone, l.points])
+      const entry = lineLayers.current.get(l.id)
+      if (entry?.key === key) continue
+      entry?.group.remove()
+      const latlngs = l.points.map((a) => [a.lat, a.lng] as L.LatLngTuple)
+      const [a, b] = l.points.slice(-2)
+      const group = L.layerGroup([
+        L.polyline(latlngs, { interactive: false, ...TONE[l.tone] }),
+        L.marker([b.lat, b.lng], { icon: arrowIcon(bearing(a, b)), interactive: false }),
+      ])
+      group.addTo(m)
+      lineLayers.current.set(l.id, { key, group })
+    }
+    for (const [id, entry] of lineLayers.current)
+      if (!seen.has(id)) {
+        entry.group.remove()
+        lineLayers.current.delete(id)
+      }
+  }, [lines])
 
   // ── 人物標記 ──
   useEffect(() => {

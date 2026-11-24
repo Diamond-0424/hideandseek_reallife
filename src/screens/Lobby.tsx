@@ -45,6 +45,9 @@ const GHOST_AIDS: Field[] = [
   { key: 'radarCooldownMin', label: '雷達冷卻', unit: '分', scale: 1, step: 1, min: 0, max: 30 },
   { key: 'shrinkEveryMin', label: '縮圈間隔', unit: '分', scale: 1, step: 1, min: 0, max: 60 },
   { key: 'pingEveryMin', label: '定期廣播間隔', unit: '分', scale: 1, step: 1, min: 0, max: 60 },
+  { key: 'pingRadiusM', label: '定期廣播範圍', unit: '公尺', scale: 1, step: 10, min: 30, max: 300 },
+  { key: 'pingShowSec', label: '定期廣播顯示', unit: '秒', scale: 1, step: 10, min: 10, max: 120 },
+  { key: 'trackSec', label: '任務失敗追蹤', unit: '秒', scale: 1, step: 10, min: 10, max: 180 },
   { key: 'idleLeakMin', label: '靜止多久曝光', unit: '分', scale: 1, step: 1, min: 0, max: 30 },
 ]
 
@@ -180,7 +183,7 @@ export function Lobby({ room, players, me, isHost, fix, onExit }: Props) {
           <div className="settings">{ADVANCED.map(row)}</div>
         </details>
         <details className="advanced">
-          <summary>鬼的輔助 · 設 0 關閉</summary>
+          <summary>鬼的輔助 · 間隔設 0 關閉</summary>
           <div className="settings">{GHOST_AIDS.map(row)}</div>
         </details>
       </section>

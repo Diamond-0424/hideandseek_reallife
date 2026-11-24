@@ -27,6 +27,11 @@ export interface Settings {
   idleLeakMin: number
   /** 現實任務（走到指定點／移動）佔任務的百分比 */
   realTaskPct: number
+  /** 任務失敗後即時追蹤的秒數 */
+  trackSec: number
+  /** 定期廣播的範圍（公尺）與顯示秒數 */
+  pingRadiusM: number
+  pingShowSec: number
 }
 
 export type RoomStatus = 'lobby' | 'hiding' | 'playing' | 'ended'
@@ -119,6 +124,8 @@ export interface Leak {
   expiresAt: number
   /** 即時追蹤：期間內房主持續把 center 更新成最新位置 */
   live?: boolean
-  /** live 時，center 對應的位置回報時間 */
+  /** center 對應的位置回報時間（舊資料可能沒有，改用 createdAt） */
   seenAt?: number
+  /** live 時，追蹤期間經過的位置（依時間先後） */
+  trail?: LatLng[]
 }

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { distance, insidePolygon, offset, polygonCentroid } from './geo'
 import {
   DEFAULT_SETTINGS,
+  fmtAgo,
+  showsMovement,
   gotoTarget,
   leakCenter,
   leakRadius,
@@ -14,7 +16,7 @@ import {
   score,
   seeded,
 } from './rules'
-import type { Player, Room } from '../types'
+import type { Leak, Player, Room } from '../types'
 
 const campus = { lat: 25.0173, lng: 121.5397 }
 
@@ -169,5 +171,40 @@ describe('score', () => {
 
   it('starting ghost has no survival', () => {
     expect(score({ ...base, startedAsGhost: true, catches: 2 }, room, T0 + 30 * 60000).total).toBe(20)
+  })
+})
+
+describe('showsMovement', () => {
+  const leakAt = (center: Leak['center'], radius: number, createdAt: number): Leak => ({
+    id: String(createdAt),
+    playerId: 'h',
+    playerName: 'h',
+    level: 1,
+    center,
+    radius,
+    reason: 'away',
+    createdAt,
+    expiresAt: createdAt + 60_000,
+  })
+
+  it('draws when the move is larger than both offsets', () => {
+    expect(showsMovement(leakAt(campus, 30, 0), leakAt(offset(campus, 100, 0), 0, 60_000))).toBe(true)
+  })
+
+  it('skips when the circle offsets could fake the direction', () => {
+    expect(showsMovement(leakAt(campus, 80, 0), leakAt(offset(campus, 100, 0), 80, 60_000))).toBe(false)
+  })
+
+  it('skips GPS jitter and stale leaks', () => {
+    expect(showsMovement(leakAt(campus, 0, 0), leakAt(offset(campus, 5, 0), 0, 60_000))).toBe(false)
+    expect(showsMovement(leakAt(campus, 0, 0), leakAt(offset(campus, 200, 0), 0, 6 * 60_000))).toBe(false)
+  })
+})
+
+describe('fmtAgo', () => {
+  it('uses seconds under a minute, minutes after', () => {
+    expect(fmtAgo(35_000)).toBe('35 秒前')
+    expect(fmtAgo(185_000)).toBe('3 分鐘前')
+    expect(fmtAgo(-500)).toBe('0 秒前')
   })
 })
